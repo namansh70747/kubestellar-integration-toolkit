@@ -1,0 +1,17 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: prometheus-integration
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-integration
+    app.kubernetes.io/component: integration
+spec:
+  type: prometheus
+  enabled: true
+  targetClusters:
+    - in-cluster
+  config:
+    url: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+    scrapeInterval: "30s"
+    enableAlerts: "true"

@@ -1,0 +1,17 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: istio-integration
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: istio-integration
+    app.kubernetes.io/component: integration
+spec:
+  type: istio
+  enabled: true
+  targetClusters:
+    - in-cluster
+  config:
+    namespace: "istio-system"
+    enableMTLS: "true"
+    enableTracing: "true"

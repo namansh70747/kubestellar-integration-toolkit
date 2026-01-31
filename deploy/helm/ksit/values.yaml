@@ -1,0 +1,77 @@
+replicaCount: 1
+
+image:
+  repository: kubestellar/integration-toolkit
+  tag: "0.1.0" # ✅ Changed from 'latest' to match Chart version
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "ksit-controller"
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 8080 # ✅ Changed from 8081 to match main.go
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+logLevel: info
+
+leaderElection:
+  enabled: true
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+
+webhook:
+  enabled: false
+  port: 9443
+
+integrations:
+  argocd:
+    enabled: false
+    serverURL: ""
+    token: ""
+  flux:
+    enabled: false
+    namespace: "flux-system"
+  prometheus:
+    enabled: false
+    url: ""
+  istio:
+    enabled: false
+    namespace: "istio-system"
+
+kubeconfigSecret: ksit-kubeconfig

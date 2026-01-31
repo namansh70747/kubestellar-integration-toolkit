@@ -1,0 +1,21 @@
+apiVersion: control.kubestellar.io/v1alpha1
+kind: BindingPolicy
+metadata:
+  name: prometheus-multi-cluster-binding
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-binding
+spec:
+  clusterSelectors:
+    - matchLabels:
+        monitoring: enabled
+  downsync:
+    - apiGroup: monitoring.coreos.com
+      resources:
+        - servicemonitors
+        - podmonitors
+        - prometheusrules
+      namespaces:
+        - monitoring
+        - default
+  upsync: []

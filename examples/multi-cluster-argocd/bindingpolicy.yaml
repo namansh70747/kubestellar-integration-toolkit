@@ -1,0 +1,22 @@
+apiVersion: control.kubestellar.io/v1alpha1
+kind: BindingPolicy
+metadata:
+  name: argocd-multi-cluster-binding
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-binding
+    app.kubernetes.io/component: integration
+spec:
+  clusterSelectors:
+    - matchLabels:
+        environment: production
+        integration: argocd
+  downsync:
+    - apiGroup: argoproj.io
+      resources:
+        - applications
+        - applicationsets
+        - appprojects
+      namespaces:
+        - argocd
+  upsync: []

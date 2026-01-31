@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: multi-cluster-app
+spec:
+  generators:
+    - cluster:
+        clusterNames:
+          - cluster1
+          - cluster2
+  template:
+    metadata:
+      name: '{{name}}-app'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/your-repo.git'
+        targetRevision: HEAD
+        path: apps/my-app
+      destination:
+        server: '{{server}}'
+        namespace: default
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

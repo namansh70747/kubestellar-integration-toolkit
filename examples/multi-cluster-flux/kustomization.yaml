@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: flux-system
+
+resources:
+  - gitrepository.yaml
+  - flux-kustomization.yaml
+  - bindingpolicy.yaml
+  - integration.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: flux
+      app.kubernetes.io/component: gitops

@@ -1,0 +1,18 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: istio-multi-cluster-mesh
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: istio-integration
+    app.kubernetes.io/component: service-mesh
+spec:
+  type: istio
+  enabled: true
+  targetClusters:
+    - cluster1
+    - cluster2
+  config:
+    namespace: "istio-system"
+    enableMTLS: "true"
+    trustDomain: "cluster.local"

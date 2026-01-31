@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ksit-multi-cluster-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: ksit-alerts
+    app.kubernetes.io/component: monitoring
+spec:
+  groups:
+    - name: ksit_integration_alerts
+      interval: 30s
+      rules:
+        - alert: IntegrationDown
+          expr: ksit_integration_status{status="running"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Integration {{ $labels.integration }} is down"
+            description: "Integration {{ $labels.integration }} in cluster {{ $labels.cluster }} has been down for more than 5 minutes."
+        
+        - alert: HighSyncLatency
+          expr: ksit_sync_latency_seconds > 30
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High sync latency for {{ $labels.integration }}"
+            description: "Sync latency for {{ $labels.integration }} in cluster {{ $labels.cluster }} is {{ $value }}s."
+        
+        - alert: SyncFailures
+          expr: rate(ksit_sync_operations_total{status="failed"}[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High sync failure rate for {{ $labels.integration }}"
+            description: "Sync failure rate for {{ $labels.integration }} is {{ $value | humanize }} per second."
+        
+        - alert: ClusterDisconnected
+          expr: ksit_cluster_connection_status == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cluster {{ $labels.cluster }} is disconnected"
+            description: "Cluster {{ $labels.cluster }} has been disconnected for more than 2 minutes."

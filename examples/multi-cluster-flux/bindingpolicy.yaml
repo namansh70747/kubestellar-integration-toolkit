@@ -1,0 +1,29 @@
+apiVersion: control.kubestellar.io/v1alpha1
+kind: BindingPolicy
+metadata:
+  name: flux-multi-cluster-binding
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: flux-binding
+spec:
+  clusterSelectors:
+    - matchLabels:
+        integration: flux
+  downsync:
+    - apiGroup: source.toolkit.fluxcd.io
+      resources:
+        - gitrepositories
+        - helmrepositories
+      namespaces:
+        - flux-system
+    - apiGroup: kustomize.toolkit.fluxcd.io
+      resources:
+        - kustomizations
+      namespaces:
+        - flux-system
+    - apiGroup: helm.toolkit.fluxcd.io
+      resources:
+        - helmreleases
+      namespaces:
+        - flux-system
+  upsync: []

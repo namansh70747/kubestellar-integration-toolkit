@@ -1,0 +1,17 @@
+apiVersion: v2
+name: ksit
+version: 0.1.0
+appVersion: "0.1.0"
+description: KubeStellar Integration Toolkit Helm Chart
+type: application
+keywords:
+  - kubestellar
+  - multi-cluster
+  - kubernetes
+  - integration
+home: https://github.com/kubestellar/integration-toolkit
+sources:
+  - https://github.com/kubestellar/integration-toolkit
+maintainers:
+  - name: KubeStellar Team
+    email: team@kubestellar.io

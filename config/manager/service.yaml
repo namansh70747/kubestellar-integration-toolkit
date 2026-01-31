@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ksit-controller-manager-metrics
+  namespace: ksit-system
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: ksit
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    control-plane: controller-manager

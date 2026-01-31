@@ -1,0 +1,17 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: flux-integration
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: flux-integration
+    app.kubernetes.io/component: integration
+spec:
+  type: flux
+  enabled: true
+  targetClusters:
+    - in-cluster
+  config:
+    namespace: "flux-system"
+    interval: "5m"
+    syncOnReconcile: "true"

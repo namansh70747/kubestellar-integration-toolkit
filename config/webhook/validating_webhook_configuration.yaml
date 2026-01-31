@@ -1,0 +1,41 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: ksit-validating-webhook-configuration
+  labels:
+    app.kubernetes.io/name: ksit
+    app.kubernetes.io/component: webhook
+webhooks:
+  - name: validate.integration.ksit.io
+    clientConfig:
+      service:
+        name: ksit-webhook-service
+        namespace: ksit-system
+        path: /validate-v1alpha1-integration
+      caBundle: Cg==  # Base64 encoded CA certificate (replace after cert generation)
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["ksit.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["integrations"]
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10
+
+  - name: validate.integrationtarget.ksit.io
+    clientConfig:
+      service:
+        name: ksit-webhook-service
+        namespace: ksit-system
+        path: /validate-v1alpha1-integrationtarget
+      caBundle: Cg==  # Base64 encoded CA certificate (replace after cert generation)
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["ksit.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["integrationtargets"]
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10

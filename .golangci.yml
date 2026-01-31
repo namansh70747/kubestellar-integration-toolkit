@@ -1,0 +1,161 @@
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - third_party
+    - testdata
+    - examples
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*_generated\\.go$"
+    - "zz_generated.*\\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
+
+linters:
+  enable:
+    # Default linters
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Vet examines Go source code
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Advanced static analysis
+    - typecheck     # Type-check code
+    - unused        # Check for unused code
+    
+    # Additional recommended linters
+    - gofmt         # Check code formatting
+    - goimports     # Check import ordering
+    - misspell      # Check for spelling mistakes
+    - revive        # Fast, configurable, extensible linter
+    - gosec         # Security-focused linter
+    - goconst       # Find repeated strings that could be constants
+    - gocyclo       # Cyclomatic complexity
+    - dupl          # Code clone detection
+    - unparam       # Unused function parameters
+    - prealloc      # Find slice declarations that could be preallocated
+    - exportloopref # Check for pointers to loop variables
+    - nolintlint    # Ensure //nolint directives are valid
+    
+  disable:
+    - deadcode      # Deprecated (use unused instead)
+    - varcheck      # Deprecated (use unused instead)
+    - structcheck   # Deprecated (use unused instead)
+    - scopelint     # Deprecated (use exportloopref instead)
+    - interfacer    # Archived
+    - maligned      # Deprecated (use govet 'fieldalignment')
+    - golint        # Deprecated (use revive instead)
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - io/ioutil.ReadFile
+      - io.Copy(*bytes.Buffer)
+      - io.Copy(os.Stdout)
+  
+  govet:
+    check-shadowing: true
+    enable-all: true
+    disable:
+      - fieldalignment  # Too strict for this project
+  
+  gocyclo:
+    min-complexity: 15
+  
+  dupl:
+    threshold: 100
+  
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  
+  misspell:
+    locale: US
+  
+  revive:
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: context-keys-type
+      - name: modifies-parameter
+  
+  gosec:
+    excludes:
+      - G204  # Audit use of command execution (too strict)
+      - G304  # File path provided as taint input (false positives)
+    severity: medium
+    confidence: medium
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+  
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - goconst
+    
+    # Exclude generated files
+    - path: zz_generated.*\.go
+      linters:
+        - all
+    
+    # Exclude known issues in specific files
+    - linters:
+        - gosec
+      text: "G404: Use of weak random number generator"
+      path: test/
+    
+    # Exclude shadow checking on the variable named err
+    - linters:
+        - govet
+      text: 'shadow: declaration of "err"'
+    
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA9003:"
+    
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+
+  exclude-use-default: false
+  
+  exclude:
+    # Ignore "should have comment" warnings for exported items
+    - "exported (type|method|function) .+ should have comment or be unexported"
+    # Ignore "comment on exported" warnings
+    - "comment on exported .+ should be of the form"
+    # Ignore error return checking in defer statements
+    - "Error return value of .((os\\.)?std(out|err)\\..*|.*Close|.*Flush|os\\.Remove(All)?|.*print(f|ln)?|os\\.(Un)?Setenv). is not checked"

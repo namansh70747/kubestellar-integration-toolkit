@@ -1,0 +1,19 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-integration
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-integration
+    app.kubernetes.io/component: integration
+spec:
+  type: argocd
+  enabled: true
+  targetClusters:
+    - in-cluster
+  config:
+    serverURL: "https://argocd-server.argocd.svc.cluster.local"
+    insecure: "true"
+    namespace: "argocd"
+    secretName: "argocd-token"
+    secretKey: "token"

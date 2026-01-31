@@ -1,0 +1,29 @@
+apiVersion: control.kubestellar.io/v1alpha1
+kind: BindingPolicy
+metadata:
+  name: istio-mesh-binding
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: istio-binding
+spec:
+  clusterSelectors:
+    - matchLabels:
+        mesh: enabled
+        integration: istio
+  downsync:
+    - apiGroup: networking.istio.io
+      resources:
+        - virtualservices
+        - destinationrules
+        - gateways
+        - serviceentries
+      namespaces:
+        - istio-system
+        - default
+    - apiGroup: security.istio.io
+      resources:
+        - peerauthentications
+        - authorizationpolicies
+      namespaces:
+        - istio-system
+  upsync: []

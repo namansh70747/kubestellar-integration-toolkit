@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ksit-system
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: ksit
+    app.kubernetes.io/component: system
