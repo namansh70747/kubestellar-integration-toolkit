@@ -1,191 +1,242 @@
-# KubeStellar Integration Toolkit
+# KubeStellar Integration Toolkit (KSIT)
 
-A Kubernetes operator that monitors the health of DevOps tools across multiple clusters. Think of it as a centralized dashboard that continuously checks if your ArgoCD, Flux, Prometheus, and Istio installations are running correctly across all your clusters.
+KSIT monitors DevOps tools running across multiple Kubernetes clusters from a single control plane. Instead of manually checking if ArgoCD, Flux, Prometheus, or Istio are healthy on each cluster, KSIT does it automatically and reports back through standard Kubernetes resources.
 
-## What Problem Does This Solve?
+## The Problem
 
-When managing multiple Kubernetes clusters, you typically install tools like ArgoCD for GitOps, Prometheus for monitoring, and Istio for service mesh. The problem? You have no easy way to know if these tools are healthy across all clusters without manually checking each one.
+Imagine you manage 10 Kubernetes clusters. Each cluster has ArgoCD for deployments, Prometheus for monitoring, and maybe Istio for service mesh. How do you know if they're all working?
 
-KSIT solves this by providing:
+Typically, you'd:
+- Switch kubectl context 10 times
+- Check pods in each namespace on each cluster
+- Look for errors in logs
+- Hope nothing broke while you weren't looking
 
-- A single API to check the status of all your DevOps tools across all clusters
-- Automatic health monitoring every 30 seconds
-- Kubernetes-native CRDs to declaratively define what should be monitored
-- Centralized visibility without needing to switch contexts between clusters
+This gets old fast.
 
-## How It Works
+## What KSIT Does
 
-KSIT runs as a controller in your control plane cluster. You tell it about your workload clusters (cluster-1, cluster-2, etc.) and which integrations to monitor (ArgoCD, Flux, Prometheus, Istio). It then:
+KSIT runs in one cluster (your control plane) and connects to all your other clusters. Every 30 seconds, it checks if the tools you care about are healthy:
 
-1. Connects to each cluster using kubeconfig secrets
-2. Checks if the specified tools are installed and healthy
-3. Reports the aggregated status back to you
-4. Continuously reconciles every 30 seconds
+- **ArgoCD**: Are the server, repo-server, and application controller running?
+- **Flux**: Are all four main controllers operational?
+- **Prometheus**: Is the operator and prometheus pods running?
+- **Istio**: Is istiod responding?
 
-This means you can run a single command to see if ArgoCD is working on all 10 of your clusters, instead of checking each one manually.
+You get a simple status for each tool on each cluster. One `kubectl get integrations` shows you everything.
 
-## Architecture
+## Why This Matters
 
-The system has two main custom resources:
+**Single pane of glass**: Check all clusters from one place. No context switching.
 
-**IntegrationTarget**: Represents a cluster you want to monitor
+**Catch problems early**: Know within 30 seconds when something breaks, before users complain.
+
+**Kubernetes-native**: Uses standard CRDs and kubectl commands. No new tools to learn.
+
+**Declarative**: Define what to monitor in YAML, just like everything else in Kubernetes.
+
+**Lightweight**: Just API calls to check resources. No agents on workload clusters.
+
+## How to Use It
+
+KSIT monitors clusters through two main resources:
+
+### 1. IntegrationTarget - Define Your Clusters
+
+Tell KSIT about each cluster you want to monitor:
 
 ```yaml
-apiVersion: ksit.kubestellar.io/v1alpha1
+apiVersion: ksit.io/v1alpha1
 kind: IntegrationTarget
 metadata:
-  name: production-cluster
+  name: production-east
+  namespace: ksit-system
 spec:
-  clusterName: prod-us-east-1
+  clusterName: production-east
+  labels:
+    environment: production
+    region: us-east
 ```
 
-**Integration**: Defines what tool to monitor on which clusters
+KSIT needs a kubeconfig to access each cluster:
+
+```bash
+kubectl create secret generic production-east-kubeconfig \
+  --from-file=kubeconfig=/path/to/prod-east.kubeconfig \
+  -n ksit-system
+```
+
+### 2. Integration - Define What to Monitor
+
+Tell KSIT which tools to check on which clusters:
 
 ```yaml
-apiVersion: ksit.kubestellar.io/v1alpha1
+apiVersion: ksit.io/v1alpha1
 kind: Integration
 metadata:
-  name: argocd-monitoring
+  name: argocd-all-prod
+  namespace: ksit-system
 spec:
   type: argocd
+  enabled: true
   targetClusters:
-    - production-cluster
-    - staging-cluster
+    - production-east
+    - production-west
+  config:
+    namespace: argocd
+    healthCheckInterval: "30s"
 ```
 
-The controller watches these resources and performs health checks on the target clusters.
+### 3. Check Status
 
-## Prerequisites
+See everything at a glance:
 
-You need the following installed on your machine:
+```bash
+kubectl get integrations -n ksit-system
+```
 
-- Go 1.21 or later
-- Docker
-- kubectl
-- kind (for local testing)
-- Optionally: helm, flux CLI, istioctl (if you want to install those tools)
+Output:
+```
+NAME              TYPE     PHASE     AGE
+argocd-all-prod   argocd   Running   5m
+flux-staging      flux     Failed    5m
+prometheus-all    prometheus Running 5m
+```
 
-## Quick Start
+Get details on failures:
 
-If you want to see KSIT in action quickly:
+```bash
+kubectl describe integration flux-staging -n ksit-system
+```
+
+## Installation
+
+### Prerequisites
+
+- **kubectl** - You'll use this to interact with KSIT
+- **Helm 3** - For installing KSIT (recommended)
+- **Docker** - If building from source
+- **kind** - For local testing (optional)
+
+### Quick Start with Helm
+
+The fastest way to install KSIT:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/kubestellar/integration-toolkit.git
-cd integration-toolkit
+git clone https://github.com/namansh70747/kubestellar-integration-toolkit.git
+cd kubestellar-integration-toolkit
 
-# 2. Run the complete setup (creates clusters, builds controller, installs tools)
+# 2. Build the controller image
+docker build -t ksit-controller:v12 .
+
+# 3. Load image into your cluster (if using kind)
+kind load docker-image ksit-controller:v12 --name your-control-cluster
+
+# 4. Install via Helm
+helm install ksit ./deploy/helm/ksit \
+  --namespace ksit-system \
+  --create-namespace \
+  --set image.repository=ksit-controller \
+  --set image.tag=v12
+
+# 5. Verify it's running
+kubectl get pods -n ksit-system
+```
+
+That's the entire installation. No complex configuration required.
+
+### Quick Demo with Sample Clusters
+
+Want to see it working immediately? Use the automated demo setup:
+
+```bash
+# Creates 3 kind clusters, installs KSIT, and sets up sample integrations
 make quickstart
 
-# 3. Check integration status
+# Check status
 kubectl get integrations -n ksit-system
-
-# 4. See detailed status
-kubectl describe integration argocd-multi-cluster -n ksit-system
+kubectl get integrationtargets -n ksit-system
 ```
 
-That's it. The quickstart command will:
+The demo creates:
+- Control cluster running KSIT
+- Two workload clusters with ArgoCD, Flux, Prometheus, and Istio
+- Sample Integration resources monitoring everything
 
-- Create 3 kind clusters (1 control plane, 2 workload clusters)
-- Build and deploy the KSIT controller
-- Install ArgoCD, Flux, Prometheus, and Istio on the workload clusters
-- Create sample Integration resources
+## Real-World Examples
 
-## Manual Setup
+### Example 1: Monitor ArgoCD on All Production Clusters
 
-If you prefer to set things up step by step:
-
-### Step 1: Create Clusters
+You have 5 production clusters and want to know if ArgoCD is healthy on all of them:
 
 ```bash
-make setup-clusters
-```
-
-This creates three kind clusters: `ksit-control`, `cluster-1`, and `cluster-2`.
-
-### Step 2: Build and Deploy Controller
-
-```bash
-make build-controller
-make deploy-local
-```
-
-This builds the Docker image and deploys it to your control cluster.
-
-### Step 3: Install DevOps Tools
-
-```bash
-make install-integrations
-```
-
-This installs ArgoCD, Flux, Prometheus, and Istio on your workload clusters.
-
-### Step 4: Create Integration Resources
-
-```bash
-kubectl apply -f config/samples/
-```
-
-This tells KSIT what to monitor.
-
-## Configuration
-
-### Adding a New Cluster
-
-Create an IntegrationTarget and a kubeconfig secret:
-
-```bash
-# Create kubeconfig secret
-kubectl create secret generic my-cluster-kubeconfig \
-  --from-file=kubeconfig=/path/to/kubeconfig \
-  -n ksit-system
-
-# Create IntegrationTarget
-kubectl apply -f - <<EOF
-apiVersion: ksit.kubestellar.io/v1alpha1
-kind: IntegrationTarget
+# Create one Integration for all clusters
+cat <<EOF | kubectl apply -f -
+apiVersion: ksit.io/v1alpha1
+kind: Integration
 metadata:
-  name: my-cluster
+  name: argocd-production
   namespace: ksit-system
 spec:
-  clusterName: my-cluster
+  type: argocd
+  enabled: true
+  targetClusters:
+    - prod-us-east
+    - prod-us-west
+    - prod-eu-west
+    - prod-ap-south
+    - prod-ap-northeast
+  config:
+    namespace: argocd
 EOF
 ```
 
-### Monitoring a Tool on Specific Clusters
+Now `kubectl get integration argocd-production` tells you the aggregated health across all 5 clusters.
+
+### Example 2: Different Tools on Different Clusters
+
+Some clusters run different tools:
 
 ```bash
+# Staging clusters have Flux
 kubectl apply -f - <<EOF
-apiVersion: ksit.kubestellar.io/v1alpha1
+apiVersion: ksit.io/v1alpha1
 kind: Integration
 metadata:
-  name: argocd-prod
+  name: flux-staging
+  namespace: ksit-system
+spec:
+  type: flux
+  targetClusters:
+    - staging-1
+    - staging-2
+EOF
+
+# Production clusters use ArgoCD
+kubectl apply -f - <<EOF
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-production
   namespace: ksit-system
 spec:
   type: argocd
   targetClusters:
-    - my-cluster
+    - prod-1
+    - prod-2
 EOF
 ```
 
-## Checking Health Status
+### Example 3: Alert on Failures
 
-View all integrations:
-
-```bash
-kubectl get integrations -n ksit-system
-```
-
-See detailed information:
+KSIT updates status conditions, which you can monitor:
 
 ```bash
-kubectl describe integration argocd-prod -n ksit-system
-```
+# Watch for status changes
+kubectl get integration argocd-production -w
 
-Watch logs in real-time:
-
-```bash
-kubectl logs -f deployment/ksit-controller-manager -n ksit-system
+# Or use a tool like kubewatch to send alerts when Phase changes to Failed
 ```
 
 ## Supported Integrations
@@ -270,30 +321,63 @@ Each integration type has specific health check logic:
 
 If any component is missing or unhealthy, the Integration status changes to "Failed" with a descriptive message.
 
+## Common Questions
+
+**Q: Do I need to install anything on my workload clusters?**
+
+No. KSIT only needs read access to check if pods and deployments exist. Nothing runs on your workload clusters.
+
+**Q: What if my tool is in a different namespace?**
+
+Currently, KSIT expects standard namespaces (argocd, flux-system, monitoring, istio-system). Custom namespace support is planned.
+
+**Q: Can this work with GKE, EKS, AKS?**
+
+Yes. KSIT works with any Kubernetes cluster. Just provide a valid kubeconfig.
+
+**Q: How much load does this add?**
+
+Very little. Every 30 seconds, KSIT makes a few API calls per cluster to check pod status. It's like running `kubectl get pods` periodically.
+
+**Q: What happens if a cluster is temporarily unreachable?**
+
+KSIT marks it as Failed and retries on the next reconciliation (30 seconds later). Once the cluster comes back, status returns to Running.
+
 ## Troubleshooting
 
-**Problem**: Integration shows "Failed" but pods are running
+**Integration shows Failed but tools are running**:
+- Check if tools are in expected namespaces
+- Run `kubectl describe integration <name> -n ksit-system` for details
 
-Check if the namespace is correct. By default, KSIT expects:
+**IntegrationTarget shows not ready**:
+- Verify kubeconfig secret exists: `kubectl get secret <cluster>-kubeconfig -n ksit-system`
+- Check if cluster is reachable from the control plane
 
-- ArgoCD in `argocd` namespace
-- Flux in `flux-system` namespace
-- Prometheus in `monitoring` namespace
-- Istio in `istio-system` namespace
+**Controller pod crashlooping**:
+- Ensure CRDs are installed: `kubectl get crd | grep ksit`
+- Check logs: `kubectl logs -n ksit-system -l control-plane=controller-manager`
 
-**Problem**: "cluster not found" error
+See [detailed troubleshooting guide](docs/troubleshooting.md) for more solutions.
 
-Make sure the IntegrationTarget exists and the kubeconfig secret is properly created with the correct cluster API server address.
+## Updating and Uninstalling
 
-**Problem**: Controller not starting
+### Upgrade KSIT
 
-Check logs: `kubectl logs deployment/ksit-controller-manager -n ksit-system`
+```bash
+helm upgrade ksit ./deploy/helm/ksit \
+  --namespace ksit-system \
+  --set image.tag=v13
+```
 
-Common issues:
+### Uninstall
 
-- CRDs not installed
-- RBAC permissions missing
-- Image not loaded into kind cluster
+```bash
+# Remove KSIT
+helm uninstall ksit -n ksit-system
+
+# Optionally remove CRDs
+kubectl delete crd integrations.ksit.io integrationtargets.ksit.io
+```
 
 ## Contributing
 
