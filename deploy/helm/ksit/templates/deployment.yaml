@@ -1,23 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "ksit.fullname" . }}
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "ksit.fullname" . }}-controller-manager
   labels:
     {{- include "ksit.labels" . | nindent 4 }}
+    control-plane: controller-manager
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "ksit.selectorLabels" . | nindent 6 }}
+      control-plane: controller-manager
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
       annotations:
-        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-        {{- end }}
+      {{- end }}
       labels:
         {{- include "ksit.selectorLabels" . | nindent 8 }}
+        control-plane: controller-manager
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -27,49 +29,52 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: manager
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # ✅ FIXED: Changed command to /ksit
-          command:
-            - /ksit
-          args:
-            - --leader-elect={{ .Values.leaderElection.enabled }}
-            - --metrics-bind-address=:{{ .Values.service.metricsPort }}
-            - --health-probe-bind-address=:8081
-            - --log-level={{ .Values.logLevel }}
-          {{- if .Values.webhook.enabled }}
-            - --enable-webhook=true
-            - --webhook-port={{ .Values.webhook.port }}
-          {{- end }}
-          ports:
-            - name: metrics
-              containerPort: {{ .Values.service.metricsPort }}
-              protocol: TCP
-            - name: health
-              containerPort: 8081
-              protocol: TCP
-          {{- if .Values.webhook.enabled }}
-            - name: webhook
-              containerPort: {{ .Values.webhook.port }}
-              protocol: TCP
-          {{- end }}
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8081
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 8081
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+      - name: manager
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /ksit
+        args:
+        - --leader-elect={{ .Values.controller.leaderElection }}
+        - --metrics-bind-address={{ .Values.controller.metricsAddr }}
+        - --health-probe-bind-address={{ .Values.controller.probeAddr }}
+        {{- if .Values.webhook.enabled }}
+        - --enable-webhook=true
+        - --webhook-port={{ .Values.webhook.port }}
+        {{- end }}
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        {{- if .Values.webhook.enabled }}
+        - containerPort: {{ .Values.webhook.port }}
+          name: webhook
+          protocol: TCP
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -82,3 +87,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      terminationGracePeriodSeconds: 10

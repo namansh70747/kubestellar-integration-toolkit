@@ -1,36 +1,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "ksit.fullname" . }}
+  name: {{ include "ksit.fullname" . }}-metrics-service
   labels:
     {{- include "ksit.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.service.type }}
+  type: ClusterIP
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
-    - port: {{ .Values.service.metricsPort }}
-      targetPort: metrics
-      protocol: TCP
-      name: metrics
+  - name: metrics
+    port: 8080
+    targetPort: metrics
+    protocol: TCP
   selector:
     {{- include "ksit.selectorLabels" . | nindent 4 }}
----
-{{- if .Values.metrics.serviceMonitor.enabled }}
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: {{ include "ksit.fullname" . }}
-  labels:
-    {{- include "ksit.labels" . | nindent 4 }}
-spec:
-  selector:
-    matchLabels:
-      {{- include "ksit.selectorLabels" . | nindent 6 }}
-  endpoints:
-    - port: metrics
-      interval: 30s
-      path: /metrics
-{{- end }}
+    control-plane: controller-manager

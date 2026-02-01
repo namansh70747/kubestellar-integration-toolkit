@@ -1,17 +1,22 @@
 apiVersion: v2
 name: ksit
-version: 0.1.0
-appVersion: "0.1.0"
-description: KubeStellar Integration Toolkit Helm Chart
+description: KubeStellar Integration Toolkit - Multi-cluster DevOps tool health monitoring
 type: application
+version: 0.1.0
+appVersion: "1.0.0"
 keywords:
-  - kubestellar
-  - multi-cluster
   - kubernetes
-  - integration
-home: https://github.com/kubestellar/integration-toolkit
+  - multi-cluster
+  - monitoring
+  - devops
+  - argocd
+  - flux
+  - prometheus
+  - istio
+home: https://github.com/namansh70747/kubestellar-integration-toolkit
 sources:
-  - https://github.com/kubestellar/integration-toolkit
+  - https://github.com/namansh70747/kubestellar-integration-toolkit
 maintainers:
-  - name: KubeStellar Team
-    email: team@kubestellar.io
+  - name: Naman Sharma
+    email: namansh70747@gmail.com
+icon: https://raw.githubusercontent.com/namansh70747/kubestellar-integration-toolkit/main/docs/logo.png

@@ -1,0 +1,89 @@
+# ArgoCD Integration for cluster-1
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-cluster-1
+  namespace: ksit-system
+spec:
+  type: argocd
+  enabled: true
+  targetClusters:
+    - cluster-1
+  config:
+    namespace: argocd
+    healthCheckInterval: "30s"
+---
+# ArgoCD Integration for cluster-2
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-cluster-2
+  namespace: ksit-system
+spec:
+  type: argocd
+  enabled: true
+  targetClusters:
+    - cluster-2
+  config:
+    namespace: argocd
+    healthCheckInterval: "30s"
+---
+# Flux Integration for cluster-1
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: flux-cluster-1
+  namespace: ksit-system
+spec:
+  type: flux
+  enabled: true
+  targetClusters:
+    - cluster-1
+  config:
+    namespace: flux-system
+    healthCheckInterval: "30s"
+---
+# Prometheus Integration for cluster-1
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: prometheus-cluster-1
+  namespace: ksit-system
+spec:
+  type: prometheus
+  enabled: true
+  targetClusters:
+    - cluster-1
+  config:
+    namespace: monitoring
+    healthCheckInterval: "30s"
+---
+# Prometheus Integration for cluster-2
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: prometheus-cluster-2
+  namespace: ksit-system
+spec:
+  type: prometheus
+  enabled: true
+  targetClusters:
+    - cluster-2
+  config:
+    namespace: monitoring
+    healthCheckInterval: "30s"
+---
+# Istio Integration for cluster-2
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: istio-cluster-2
+  namespace: ksit-system
+spec:
+  type: istio
+  enabled: true
+  targetClusters:
+    - cluster-2
+  config:
+    namespace: istio-system
+    healthCheckInterval: "60s"

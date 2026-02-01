@@ -1,186 +1,69 @@
+{{- if .Values.rbac.create -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "ksit.fullname" . }}-manager-role
+  labels:
+    {{- include "ksit.labels" . | nindent 4 }}
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-      - secrets
-      - namespaces
-      - pods
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - apps
-    resources:
-      - deployments
-      - statefulsets
-      - daemonsets
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ksit.io
-    resources:
-      - integrations
-      - integrationtargets
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ksit.io
-    resources:
-      - integrations/status
-      - integrationtargets/status
-    verbs:
-      - get
-      - update
-      - patch
-  - apiGroups:
-      - ksit.io
-    resources:
-      - integrations/finalizers
-      - integrationtargets/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - argoproj.io
-    resources:
-      - applications
-      - applicationsets
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - source.toolkit.fluxcd.io
-    resources:
-      - gitrepositories
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-  - apiGroups:
-      - kustomize.toolkit.fluxcd.io
-    resources:
-      - kustomizations
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-  - apiGroups:
-      - networking.istio.io
-    resources:
-      - virtualservices
-      - destinationrules
-      - gateways
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - control.kubestellar.io
-    resources:
-      - bindingpolicies
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
+- apiGroups:
+  - ksit.io
+  resources:
+  - integrations
+  - integrationtargets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ksit.io
+  resources:
+  - integrations/finalizers
+  - integrationtargets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ksit.io
+  resources:
+  - integrations/status
+  - integrationtargets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: {{ include "ksit.fullname" . }}-manager-rolebinding
+  labels:
+    {{- include "ksit.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: {{ include "ksit.fullname" . }}-manager-role
 subjects:
-  - kind: ServiceAccount
-    name: {{ include "ksit.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ include "ksit.fullname" . }}-leader-election-role
+- kind: ServiceAccount
+  name: {{ include "ksit.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
-rules:
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - coordination.k8s.io
-    resources:
-      - leases
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - events
-    verbs:
-      - create
-      - patch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "ksit.fullname" . }}-leader-election-rolebinding
-  namespace: {{ .Release.Namespace }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "ksit.fullname" . }}-leader-election-role
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "ksit.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -138,21 +138,22 @@ build: generate fmt vet ## Build manager binary
 build-controller: ## Build controller Docker image
 	@echo "$(GREEN)Building controller image ksit-controller:latest...$(NC)"
 	@docker build -t ksit-controller:latest -f Dockerfile .
-	@docker tag ksit-controller:latest ksit-controller:v$$(cat VERSION 2>/dev/null || echo "1")
+	@docker tag ksit-controller:latest ksit-controller:v$$(cat VERSION 2>/dev/null || echo "12")
 
 .PHONY: deploy-local
-deploy-local: build-controller ## Deploy controller to kind clusters
+deploy-local: build-controller ## Deploy controller to kind clusters using Helm
 	@echo "$(GREEN)Loading image into kind clusters...$(NC)"
 	@kind load docker-image ksit-controller:latest --name ksit-control
-	@echo "$(GREEN)Applying CRDs...$(NC)"
+	@echo "$(GREEN)Deploying controller via Helm...$(NC)"
 	@kubectl config use-context kind-ksit-control
-	@kubectl apply -f config/crd/bases/
-	@echo "$(GREEN)Deploying controller...$(NC)"
-	@kubectl create namespace ksit-system --dry-run=client -o yaml | kubectl apply -f -
-	@kubectl apply -f config/manager/manager.yaml -n ksit-system
-	@kubectl set image deployment/ksit-controller-manager manager=ksit-controller:latest -n ksit-system
+	@helm upgrade --install ksit ./deploy/helm/ksit \
+		--namespace ksit-system \
+		--create-namespace \
+		--set image.repository=ksit-controller \
+		--set image.tag=latest \
+		--set image.pullPolicy=IfNotPresent
 	@echo "$(GREEN)Waiting for controller to be ready...$(NC)"
-	@kubectl wait --for=condition=available --timeout=120s deployment/ksit-controller-manager -n ksit-system
+	@kubectl wait --for=condition=ready --timeout=120s pod -l control-plane=controller-manager -n ksit-system
 
 .PHONY: build-local
 build-local: generate fmt vet ## Build for local OS
@@ -198,25 +199,32 @@ uninstall: manifests kustomize ## Uninstall CRDs from cluster
 	@$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to cluster
-	@echo "$(GREEN)Deploying controller...$(NC)"
-	@cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	@$(KUSTOMIZE) build config/default | kubectl apply -f -
-
-.PHONY: undeploy
-undeploy: ## Undeploy controller from cluster
-	@echo "$(GREEN)Removing controller...$(NC)"
-	@$(KUSTOMIZE) build config/default | kubectl delete -f -
+deploy: manifests ## Deploy controller to cluster using Helm
+	@echo "$(GREEN)Deploying controller via Helm...$(NC)"
+	@helm upgrade --install ksit ./deploy/helm/ksit \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--set image.repository=ksit-controller \
+		--set image.tag=latest \
+		--set image.pullPolicy=IfNotPresent
 
 .PHONY: deploy-helm
 deploy-helm: ## Deploy using Helm
 	@echo "$(GREEN)Deploying with Helm...$(NC)"
-	@helm install ksit deploy/helm/ksit --namespace $(NAMESPACE) --create-namespace
+	@helm upgrade --install ksit ./deploy/helm/ksit \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--set image.repository=ksit-controller \
+		--set image.tag=latest \
+		--set image.pullPolicy=IfNotPresent
 
 .PHONY: undeploy-helm
 undeploy-helm: ## Undeploy using Helm
 	@echo "$(GREEN)Uninstalling Helm release...$(NC)"
 	@helm uninstall ksit --namespace $(NAMESPACE)
+
+.PHONY: undeploy
+undeploy: undeploy-helm ## Undeploy controller from cluster (alias for undeploy-helm)
 
 .PHONY: deploy-samples
 deploy-samples: ## Deploy sample integrations

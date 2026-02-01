@@ -1,0 +1,21 @@
+apiVersion: ksit.io/v1alpha1
+kind: IntegrationTarget
+metadata:
+  name: cluster-1
+  namespace: ksit-system
+spec:
+  clusterName: cluster-1
+  labels:
+    environment: production
+    region: us-west
+---
+apiVersion: ksit.io/v1alpha1
+kind: IntegrationTarget
+metadata:
+  name: cluster-2
+  namespace: ksit-system
+spec:
+  clusterName: cluster-2
+  labels:
+    environment: production
+    region: us-east

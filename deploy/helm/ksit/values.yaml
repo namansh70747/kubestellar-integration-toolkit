@@ -1,79 +1,111 @@
+# Default values for KSIT
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
 replicaCount: 1
 
 image:
-  repository: kubestellar/integration-toolkit
-  tag: "0.1.0"
+  repository: ghcr.io/namansh70747/ksit-controller
   pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
 serviceAccount:
+  # Specifies whether a service account should be created
   create: true
+  # Annotations to add to the service account
   annotations: {}
-  name: "ksit-controller"
+  # The name of the service account to use.
+  name: "ksit-controller-manager"
 
 podAnnotations: {}
 
 podSecurityContext:
   runAsNonRoot: true
-  seccompProfile:
-    type: RuntimeDefault
+  runAsUser: 65532
+  fsGroup: 65532
 
 securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:
-      - ALL
-
-service:
-  type: ClusterIP
-  port: 8080
-  metricsPort: 8080 # ✅ Matches main.go default
+    - ALL
+  readOnlyRootFilesystem: true
 
 resources:
   limits:
     cpu: 500m
-    memory: 128Mi
+    memory: 512Mi
   requests:
     cpu: 100m
-    memory: 64Mi
+    memory: 128Mi
 
 nodeSelector: {}
+
 tolerations: []
+
 affinity: {}
 
-logLevel: info
+# Controller configuration
+controller:
+  # Metrics server bind address
+  metricsAddr: ":8080"
+  
+  # Health probe bind address
+  probeAddr: ":8081"
+  
+  # Enable leader election for high availability
+  leaderElection: true
+  
+  # Reconciliation interval (how often to check health)
+  reconcileInterval: 30s
+  
+  # Log level (debug, info, warn, error)
+  logLevel: info
 
-leaderElection:
-  enabled: true
-
-metrics:
-  enabled: true
-  serviceMonitor:
-    enabled: false
-    interval: 30s
-
+# Webhook configuration (currently disabled by default)
 webhook:
   enabled: false
   port: 9443
+  certDir: /tmp/k8s-webhook-server/serving-certs
 
-integrations:
-  argocd:
-    enabled: false
-    serverURL: ""
-    token: ""
-  flux:
-    enabled: false
-    namespace: "flux-system"
-  prometheus:
-    enabled: false
-    url: ""
-  istio:
-    enabled: false
-    namespace: "istio-system"
-  kubestellar:
-    enabled: false
+# RBAC configuration
+rbac:
+  create: true
 
-kubeconfigSecret: ksit-kubeconfig
+# Cluster inventory settings
+clusterInventory:
+  # Enable automatic cluster discovery
+  autoDiscovery: false
+
+# Integration health check configuration
+healthCheck:
+  # Default health check interval for integrations
+  interval: 30s
+  
+  # Number of retries before marking integration as failed
+  retries: 3
+  
+  # Timeout for each health check
+  timeout: 10s
+
+# Monitoring settings
+monitoring:
+  # Enable Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# Alerting configuration (optional)
+alerting:
+  enabled: false
+  # Slack webhook URL for alerts
+  slackWebhook: ""
+  # PagerDuty integration key
+  pagerdutyKey: ""
