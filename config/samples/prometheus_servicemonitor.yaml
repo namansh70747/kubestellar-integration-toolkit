@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ksit-controller-metrics
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: ksit
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ksit
+  namespaceSelector:
+    matchNames:
+      - ksit-system
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics

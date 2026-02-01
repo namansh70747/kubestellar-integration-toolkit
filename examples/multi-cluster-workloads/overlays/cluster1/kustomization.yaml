@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+
+resources:
+  - ../../base
+
+namePrefix: cluster1-
+
+patches:
+  - target:
+      kind: Deployment
+      name: demo-app
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: add
+        path: /spec/template/metadata/labels/cluster
+        value: cluster1
+
+commonLabels:
+  cluster: cluster1
+  region: us-east

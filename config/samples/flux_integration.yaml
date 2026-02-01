@@ -14,4 +14,6 @@ spec:
   config:
     namespace: "flux-system"
     interval: "5m"
-    syncOnReconcile: "true"
+    # This tells KSIT which GitRepository to monitor
+    gitRepositoryName: "ksit-repo"
+    gitRepositoryNamespace: "flux-system"

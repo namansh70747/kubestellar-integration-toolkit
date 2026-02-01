@@ -12,6 +12,7 @@ spec:
   targetClusters:
     - in-cluster
   config:
+    # Prometheus URL in your cluster
     url: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
     scrapeInterval: "30s"
     enableAlerts: "true"

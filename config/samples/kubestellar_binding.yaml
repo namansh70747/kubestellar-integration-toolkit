@@ -1,0 +1,22 @@
+apiVersion: control.kubestellar.io/v1alpha1
+kind: BindingPolicy
+metadata:
+  name: ksit-demo-binding
+  namespace: demo
+spec:
+  clusterSelectors:
+    - matchLabels:
+        location-group: edge
+  downsync:
+    - apiGroup: apps
+      resources:
+        - deployments
+      namespaces:
+        - demo
+    - apiGroup: ""
+      resources:
+        - services
+        - configmaps
+      namespaces:
+        - demo
+  wantSingletonReportedState: true

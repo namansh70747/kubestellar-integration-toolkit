@@ -12,8 +12,10 @@ spec:
   targetClusters:
     - in-cluster
   config:
+    # ArgoCD server running in your cluster
     serverURL: "https://argocd-server.argocd.svc.cluster.local"
     insecure: "true"
     namespace: "argocd"
+    # Use the token secret you created
     secretName: "argocd-token"
     secretKey: "token"

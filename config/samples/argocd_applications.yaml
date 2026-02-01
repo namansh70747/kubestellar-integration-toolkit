@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ksit-demo-cluster1
+  namespace: argocd
+  labels:
+    managed-by: ksit
+    cluster: cluster1
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/namansh70747/kubestellar-integration-toolkit
+    targetRevision: main
+    path: examples/multi-cluster-workloads/overlays/cluster1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ksit-demo-cluster2
+  namespace: argocd
+  labels:
+    managed-by: ksit
+    cluster: cluster2
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/namansh70747/kubestellar-integration-toolkit
+    targetRevision: main
+    path: examples/multi-cluster-workloads/overlays/cluster2
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
