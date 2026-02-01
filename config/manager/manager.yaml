@@ -23,7 +23,8 @@ spec:
         runAsNonRoot: true
       containers:
         - name: manager
-          image: controller:latest
+          image: ksit-controller:v2
+          imagePullPolicy: Never
           # ✅ FIXED: Changed from /manager to /ksit to match Dockerfile
           command:
             - /ksit

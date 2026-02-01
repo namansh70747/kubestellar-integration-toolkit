@@ -46,6 +46,29 @@ help: ## Display this help
 .PHONY: all
 all: build ## Build everything
 
+.PHONY: quickstart
+quickstart: setup-clusters build-controller deploy-local install-integrations deploy-samples ## Complete setup from scratch
+
+##@ Cluster Setup
+
+.PHONY: setup-clusters
+setup-clusters: ## Create kind clusters and configure kubeconfigs
+	@echo "$(BLUE)Creating kind clusters...$(NC)"
+	@chmod +x ./scripts/setup-clusters.sh
+	@./scripts/setup-clusters.sh
+
+.PHONY: install-integrations
+install-integrations: ## Install ArgoCD, Flux, Prometheus, Istio on clusters
+	@echo "$(BLUE)Installing DevOps tools...$(NC)"
+	@chmod +x ./scripts/install-integrations.sh
+	@./scripts/install-integrations.sh
+
+.PHONY: cleanup
+cleanup: ## Delete all kind clusters and resources
+	@echo "$(BLUE)Cleaning up environment...$(NC)"
+	@chmod +x ./scripts/cleanup.sh
+	@./scripts/cleanup.sh
+
 ##@ Development
 
 .PHONY: fmt
@@ -110,6 +133,26 @@ manifests: controller-gen ## Generate manifests (CRDs, RBAC, etc.)
 build: generate fmt vet ## Build manager binary
 	@echo "$(GREEN)Building $(BINARY_NAME)...$(NC)"
 	@go build -o bin/$(BINARY_NAME) ./cmd/ksit/main.go
+
+.PHONY: build-controller
+build-controller: ## Build controller Docker image
+	@echo "$(GREEN)Building controller image ksit-controller:latest...$(NC)"
+	@docker build -t ksit-controller:latest -f Dockerfile .
+	@docker tag ksit-controller:latest ksit-controller:v$$(cat VERSION 2>/dev/null || echo "1")
+
+.PHONY: deploy-local
+deploy-local: build-controller ## Deploy controller to kind clusters
+	@echo "$(GREEN)Loading image into kind clusters...$(NC)"
+	@kind load docker-image ksit-controller:latest --name ksit-control
+	@echo "$(GREEN)Applying CRDs...$(NC)"
+	@kubectl config use-context kind-ksit-control
+	@kubectl apply -f config/crd/bases/
+	@echo "$(GREEN)Deploying controller...$(NC)"
+	@kubectl create namespace ksit-system --dry-run=client -o yaml | kubectl apply -f -
+	@kubectl apply -f config/manager/manager.yaml -n ksit-system
+	@kubectl set image deployment/ksit-controller-manager manager=ksit-controller:latest -n ksit-system
+	@echo "$(GREEN)Waiting for controller to be ready...$(NC)"
+	@kubectl wait --for=condition=available --timeout=120s deployment/ksit-controller-manager -n ksit-system
 
 .PHONY: build-local
 build-local: generate fmt vet ## Build for local OS

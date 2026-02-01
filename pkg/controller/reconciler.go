@@ -6,19 +6,19 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	ksitv1alpha1 "github.com/kubestellar/integration-toolkit/api/v1alpha1"
 	"github.com/kubestellar/integration-toolkit/pkg/cluster"
-	"github.com/kubestellar/integration-toolkit/pkg/integrations/argocd"
-	"github.com/kubestellar/integration-toolkit/pkg/integrations/flux"
-	"github.com/kubestellar/integration-toolkit/pkg/integrations/istio"
 	"github.com/kubestellar/integration-toolkit/pkg/integrations/prometheus"
 )
 
@@ -198,28 +198,106 @@ func (r *IntegrationReconciler) reconcileArgoCD(ctx context.Context, integration
 	r.Log.Info("reconciling ArgoCD integration", "name", integration.Name)
 	startTime := time.Now()
 
-	argoClient, err := argocd.NewClient(r.Client, integration.Spec.Config)
-	if err != nil {
-		return fmt.Errorf("failed to create ArgoCD client: %w", err)
+	// Get namespace from config or use default
+	namespace := integration.Spec.Config["namespace"]
+	if namespace == "" {
+		namespace = "argocd"
 	}
 
-	// Perform health check first
-	if err := argoClient.HealthCheck(ctx); err != nil {
-		return fmt.Errorf("ArgoCD health check failed: %w", err)
-	}
-	r.Log.Info("ArgoCD health check passed")
+	// Health check for each target cluster using Kubernetes API
+	for _, clusterName := range integration.Spec.TargetClusters {
+		r.Log.Info("checking ArgoCD health on cluster", "cluster", clusterName)
 
-	// Sync applications for each target cluster
-	for _, cluster := range integration.Spec.TargetClusters {
-		if err := argoClient.SyncCluster(ctx, cluster); err != nil {
-			r.Log.Error(err, "failed to sync cluster", "cluster", cluster)
-			prometheus.RecordSyncOperation(integration.Name, cluster, "failed")
-		} else {
-			prometheus.RecordSyncOperation(integration.Name, cluster, "success")
+		// Get cluster configuration
+		clusterConfig, err := r.ClusterManager.GetClusterConfig(clusterName, integration.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to get cluster config for %s: %w", clusterName, err)
+		}
+
+		// Create clientset for target cluster
+		clientset, err := kubernetes.NewForConfig(clusterConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create clientset for %s: %w", clusterName, err)
+		}
+
+		// ✅ Health Check 1: Namespace exists
+		_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("ArgoCD namespace %s not found on %s: %w", namespace, clusterName, err)
+		}
+
+		// ✅ Health Check 2: ArgoCD server deployment is healthy
+		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "argocd-server", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("ArgoCD server deployment not found on %s: %w", clusterName, err)
+		}
+
+		if deployment.Status.AvailableReplicas == 0 {
+			return fmt.Errorf("ArgoCD server has 0 available replicas on %s", clusterName)
+		}
+
+		// ✅ Health Check 3: ArgoCD server service has endpoints
+		endpoints, err := clientset.CoreV1().Endpoints(namespace).Get(ctx, "argocd-server", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("ArgoCD server endpoints not found on %s: %w", clusterName, err)
+		}
+
+		totalEndpoints := 0
+		for _, subset := range endpoints.Subsets {
+			totalEndpoints += len(subset.Addresses)
+		}
+
+		if totalEndpoints == 0 {
+			return fmt.Errorf("ArgoCD server service has no endpoints on %s", clusterName)
+		}
+
+		// ✅ Health Check 4: Check critical ArgoCD components
+		criticalComponents := []string{
+			"argocd-server",
+			"argocd-repo-server",
+			"argocd-application-controller",
+		}
+
+		for _, componentName := range criticalComponents {
+			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, componentName, metav1.GetOptions{})
+			if err != nil {
+				r.Log.Info("ArgoCD component not found", "component", componentName, "cluster", clusterName)
+				continue
+			}
+
+			if deploy.Status.AvailableReplicas > 0 {
+				r.Log.Info("ArgoCD component is healthy",
+					"component", componentName,
+					"cluster", clusterName,
+					"replicas", deploy.Status.AvailableReplicas)
+			}
+		}
+
+		// ✅ Health Check 5: Verify ArgoCD pods are running
+		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/name",
+		})
+		if err == nil {
+			runningPods := 0
+			for _, pod := range pods.Items {
+				if pod.Status.Phase == corev1.PodRunning {
+					runningPods++
+				}
+			}
+			r.Log.Info("ArgoCD pods status",
+				"cluster", clusterName,
+				"total", len(pods.Items),
+				"running", runningPods)
+
+			if runningPods == 0 {
+				return fmt.Errorf("no ArgoCD pods are running on %s", clusterName)
+			}
 		}
 
 		latency := time.Since(startTime).Seconds()
-		prometheus.RecordSyncLatency(integration.Name, cluster, latency)
+		prometheus.RecordSyncLatency(integration.Name, clusterName, latency)
+		prometheus.RecordSyncOperation(integration.Name, clusterName, "success")
+		r.Log.Info("✅ ArgoCD integration is healthy", "cluster", clusterName)
 	}
 
 	return nil
@@ -228,30 +306,86 @@ func (r *IntegrationReconciler) reconcileArgoCD(ctx context.Context, integration
 func (r *IntegrationReconciler) reconcileFlux(ctx context.Context, integration *ksitv1alpha1.Integration) error {
 	r.Log.Info("reconciling Flux integration", "name", integration.Name)
 
-	fluxClient := flux.NewFluxClient(r.Client, r.Scheme, r.Log)
-
-	// List GitRepositories to verify Flux is working
 	namespace := integration.Spec.Config["namespace"]
 	if namespace == "" {
 		namespace = "flux-system"
 	}
 
-	gitRepos, err := fluxClient.ListGitRepositories(ctx, namespace)
-	if err != nil {
-		return fmt.Errorf("failed to list GitRepositories: %w", err)
-	}
-	r.Log.Info("found GitRepositories", "count", len(gitRepos))
+	// Health check for each target cluster using Kubernetes API
+	for _, clusterName := range integration.Spec.TargetClusters {
+		r.Log.Info("checking Flux health on cluster", "cluster", clusterName)
 
-	// List Kustomizations
-	kustomizations, err := fluxClient.ListKustomizations(ctx, namespace)
-	if err != nil {
-		return fmt.Errorf("failed to list Kustomizations: %w", err)
-	}
-	r.Log.Info("found Kustomizations", "count", len(kustomizations))
+		// Get cluster configuration
+		clusterConfig, err := r.ClusterManager.GetClusterConfig(clusterName, integration.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to get cluster config for %s: %w", clusterName, err)
+		}
 
-	// Record metrics for each target cluster
-	for _, cluster := range integration.Spec.TargetClusters {
-		prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, cluster, true)
+		// Create clientset for target cluster
+		clientset, err := kubernetes.NewForConfig(clusterConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create clientset for %s: %w", clusterName, err)
+		}
+
+		// ✅ Health Check 1: Namespace exists
+		_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("Flux namespace %s not found on %s: %w", namespace, clusterName, err)
+		}
+
+		// ✅ Health Check 2: Flux controllers are running
+		fluxControllers := []string{
+			"source-controller",
+			"kustomize-controller",
+			"helm-controller",
+			"notification-controller",
+		}
+
+		healthyControllers := 0
+		for _, controllerName := range fluxControllers {
+			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, controllerName, metav1.GetOptions{})
+			if err != nil {
+				r.Log.Info("Flux controller not found", "controller", controllerName, "cluster", clusterName)
+				continue
+			}
+
+			if deploy.Status.AvailableReplicas > 0 {
+				healthyControllers++
+				r.Log.Info("Flux controller is healthy",
+					"controller", controllerName,
+					"cluster", clusterName,
+					"replicas", deploy.Status.AvailableReplicas)
+			}
+		}
+
+		if healthyControllers == 0 {
+			return fmt.Errorf("no Flux controllers are running on %s", clusterName)
+		}
+
+		// ✅ Health Check 3: Check Flux pods
+		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to list Flux pods on %s: %w", clusterName, err)
+		}
+
+		runningPods := 0
+		for _, pod := range pods.Items {
+			if pod.Status.Phase == corev1.PodRunning {
+				runningPods++
+			}
+		}
+
+		r.Log.Info("Flux pods status",
+			"cluster", clusterName,
+			"total", len(pods.Items),
+			"running", runningPods)
+
+		if runningPods == 0 {
+			return fmt.Errorf("no Flux pods are running on %s", clusterName)
+		}
+
+		prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, clusterName, true)
+		r.Log.Info("✅ Flux integration is healthy", "cluster", clusterName, "controllers", healthyControllers)
 	}
 
 	return nil
@@ -260,31 +394,102 @@ func (r *IntegrationReconciler) reconcileFlux(ctx context.Context, integration *
 func (r *IntegrationReconciler) reconcilePrometheus(ctx context.Context, integration *ksitv1alpha1.Integration) error {
 	r.Log.Info("reconciling Prometheus integration", "name", integration.Name)
 
-	promURL := integration.Spec.Config["url"]
-	if promURL == "" {
-		return fmt.Errorf("Prometheus URL not configured")
+	namespace := integration.Spec.Config["namespace"]
+	if namespace == "" {
+		namespace = "monitoring"
 	}
 
-	promClient, err := prometheus.NewClient(promURL)
-	if err != nil {
-		return fmt.Errorf("failed to create Prometheus client: %w", err)
-	}
+	// Health check for each target cluster using Kubernetes API
+	for _, clusterName := range integration.Spec.TargetClusters {
+		r.Log.Info("checking Prometheus health on cluster", "cluster", clusterName)
 
-	// Validate connection
-	if err := promClient.ValidateConnection(ctx); err != nil {
-		return fmt.Errorf("Prometheus connection failed: %w", err)
-	}
+		// Get cluster configuration
+		clusterConfig, err := r.ClusterManager.GetClusterConfig(clusterName, integration.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to get cluster config for %s: %w", clusterName, err)
+		}
 
-	// Get targets to verify scraping is working
-	targets, err := promClient.GetTargets(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get Prometheus targets: %w", err)
-	}
-	r.Log.Info("Prometheus targets", "active", len(targets.Active), "dropped", len(targets.Dropped))
+		// Create clientset for target cluster
+		clientset, err := kubernetes.NewForConfig(clusterConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create clientset for %s: %w", clusterName, err)
+		}
 
-	// Record metrics for each target cluster
-	for _, cluster := range integration.Spec.TargetClusters {
-		prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, cluster, true)
+		// ✅ Health Check 1: Namespace exists
+		_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("Prometheus namespace %s not found on %s: %w", namespace, clusterName, err)
+		}
+
+		// ✅ Health Check 2: Check Prometheus operator deployment
+		deployments := []string{
+			"prometheus-kube-prometheus-operator",
+			"prometheus-grafana",
+		}
+
+		healthyComponents := 0
+		for _, deployName := range deployments {
+			deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, deployName, metav1.GetOptions{})
+			if err != nil {
+				r.Log.Info("Prometheus component not found", "component", deployName, "cluster", clusterName)
+				continue
+			}
+
+			if deploy.Status.AvailableReplicas > 0 {
+				healthyComponents++
+				r.Log.Info("Prometheus component is healthy",
+					"component", deployName,
+					"cluster", clusterName,
+					"replicas", deploy.Status.AvailableReplicas)
+			}
+		}
+
+		// ✅ Health Check 3: Check StatefulSets (Prometheus, Alertmanager)
+		statefulsets := []string{
+			"prometheus-prometheus-kube-prometheus-prometheus",
+			"alertmanager-prometheus-kube-prometheus-alertmanager",
+		}
+
+		for _, stsName := range statefulsets {
+			sts, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, stsName, metav1.GetOptions{})
+			if err != nil {
+				r.Log.Info("StatefulSet not found", "statefulset", stsName, "cluster", clusterName)
+				continue
+			}
+
+			if sts.Status.ReadyReplicas > 0 {
+				healthyComponents++
+				r.Log.Info("StatefulSet is healthy",
+					"statefulset", stsName,
+					"cluster", clusterName,
+					"replicas", sts.Status.ReadyReplicas)
+			}
+		}
+
+		// ✅ Health Check 4: Count running Prometheus pods
+		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to list Prometheus pods on %s: %w", clusterName, err)
+		}
+
+		runningPods := 0
+		for _, pod := range pods.Items {
+			if pod.Status.Phase == corev1.PodRunning {
+				runningPods++
+			}
+		}
+
+		r.Log.Info("Prometheus pods status",
+			"cluster", clusterName,
+			"total", len(pods.Items),
+			"running", runningPods)
+
+		if runningPods == 0 {
+			return fmt.Errorf("no Prometheus pods are running on %s", clusterName)
+		}
+
+		prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, clusterName, true)
+		r.Log.Info("✅ Prometheus integration is healthy", "cluster", clusterName)
 	}
 
 	return nil
@@ -293,32 +498,79 @@ func (r *IntegrationReconciler) reconcilePrometheus(ctx context.Context, integra
 func (r *IntegrationReconciler) reconcileIstio(ctx context.Context, integration *ksitv1alpha1.Integration) error {
 	r.Log.Info("reconciling Istio integration", "name", integration.Name)
 
-	istioClient, err := istio.NewClient()
-	if err != nil {
-		return fmt.Errorf("failed to create Istio client: %w", err)
-	}
+	// Istio typically runs in istio-system namespace
+	namespace := "istio-system"
 
-	// Health check
-	if err := istioClient.HealthCheck(); err != nil {
-		return fmt.Errorf("Istio health check failed: %w", err)
-	}
+	// Health check for each target cluster using Kubernetes API
+	for _, clusterName := range integration.Spec.TargetClusters {
+		r.Log.Info("checking Istio health on cluster", "cluster", clusterName)
 
-	// Configure mesh if mTLS is enabled
-	if integration.Spec.Config["enableMTLS"] == "true" {
-		mesh := istio.NewServiceMesh(r.Client)
-		meshConfig := &istio.MeshConfig{
-			Name:           integration.Name,
-			Namespace:      integration.Spec.Config["namespace"],
-			EnableAutoMTLS: true,
+		// Get cluster configuration
+		clusterConfig, err := r.ClusterManager.GetClusterConfig(clusterName, integration.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to get cluster config for %s: %w", clusterName, err)
 		}
-		if err := mesh.ConfigureMesh(ctx, meshConfig); err != nil {
-			r.Log.Error(err, "failed to configure mesh")
-		}
-	}
 
-	// Record metrics for each target cluster
-	for _, cluster := range integration.Spec.TargetClusters {
-		prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, cluster, true)
+		// Create clientset for target cluster
+		clientset, err := kubernetes.NewForConfig(clusterConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create clientset for %s: %w", clusterName, err)
+		}
+
+		// ✅ Health Check 1: Namespace exists
+		_, err = clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("Istio namespace %s not found on %s: %w", namespace, clusterName, err)
+		}
+
+		// ✅ Health Check 2: Istiod (control plane) is running
+		deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "istiod", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("Istiod deployment not found on %s: %w", clusterName, err)
+		}
+
+		if deployment.Status.AvailableReplicas == 0 {
+			return fmt.Errorf("Istiod has 0 available replicas on %s", clusterName)
+		}
+
+		r.Log.Info("Istiod is healthy",
+			"cluster", clusterName,
+			"replicas", deployment.Status.AvailableReplicas)
+
+		// ✅ Health Check 3: Ingress gateway (if exists)
+		ingressDeploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "istio-ingressgateway", metav1.GetOptions{})
+		if err == nil {
+			r.Log.Info("Istio ingress gateway found",
+				"cluster", clusterName,
+				"replicas", ingressDeploy.Status.AvailableReplicas)
+		} else {
+			r.Log.Info("Istio ingress gateway not found (optional)", "cluster", clusterName)
+		}
+
+		// ✅ Health Check 4: Check Istio pods
+		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to list Istio pods on %s: %w", clusterName, err)
+		}
+
+		runningPods := 0
+		for _, pod := range pods.Items {
+			if pod.Status.Phase == corev1.PodRunning {
+				runningPods++
+			}
+		}
+
+		r.Log.Info("Istio pods status",
+			"cluster", clusterName,
+			"total", len(pods.Items),
+			"running", runningPods)
+
+		if runningPods == 0 {
+			return fmt.Errorf("no Istio pods are running on %s", clusterName)
+		}
+
+		prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, clusterName, true)
+		r.Log.Info("✅ Istio integration is healthy", "cluster", clusterName)
 	}
 
 	return nil
@@ -348,9 +600,8 @@ func (r *IntegrationReconciler) cleanupIntegration(ctx context.Context, integrat
 }
 
 func (r *IntegrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// ✅ INITIALIZE ClusterManager and ClusterInventory
-	r.ClusterManager = cluster.NewClusterManager(r.Client)
-	r.ClusterInventory = cluster.NewClusterInventory()
+	// ClusterManager and ClusterInventory should be set before calling SetupWithManager
+	// They are passed from main.go to ensure both reconcilers share the same instances
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ksitv1alpha1.Integration{}).
@@ -360,33 +611,128 @@ func (r *IntegrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // IntegrationTargetReconciler reconciles IntegrationTarget objects
 type IntegrationTargetReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Log    logr.Logger
+	Scheme         *runtime.Scheme
+	Log            logr.Logger
+	ClusterManager *cluster.ClusterManager
 }
 
 func (r *IntegrationTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// ✅ FIXED: Use the log variable
 	r.Log.Info("reconciling integration target", "name", req.NamespacedName)
 
 	target := &ksitv1alpha1.IntegrationTarget{}
 	if err := r.Get(ctx, req.NamespacedName, target); err != nil {
 		if errors.IsNotFound(err) {
+			// Target was deleted - remove from cluster manager
+			if r.ClusterManager != nil {
+				_ = r.ClusterManager.RemoveCluster(req.Name, req.Namespace)
+				r.Log.Info("removed cluster from manager", "cluster", req.Name)
+			}
 			return ctrl.Result{}, nil
 		}
 		r.Log.Error(err, "failed to get integration target")
 		return ctrl.Result{}, err
 	}
 
-	// Update status
-	target.Status.Ready = true
-	target.Status.Message = "Target is ready"
+	// Get kubeconfig from secret
+	secretName := target.Spec.ClusterName + "-kubeconfig"
+	secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{
+		Name:      secretName,
+		Namespace: target.Namespace,
+	}
 
-	// Add Ready condition
+	if err := r.Get(ctx, secretKey, secret); err != nil {
+		r.Log.Error(err, "failed to get kubeconfig secret", "secret", secretName)
+		target.Status.Ready = false
+		target.Status.Message = fmt.Sprintf("Kubeconfig secret %s not found", secretName)
+
+		meta.SetStatusCondition(&target.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "SecretNotFound",
+			Message: fmt.Sprintf("Kubeconfig secret %s not found", secretName),
+		})
+
+		_ = r.Status().Update(ctx, target)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	// Extract kubeconfig from secret
+	kubeconfigData, ok := secret.Data["kubeconfig"]
+	if !ok {
+		r.Log.Error(fmt.Errorf("kubeconfig key not found"), "secret missing kubeconfig key")
+		target.Status.Ready = false
+		target.Status.Message = "Secret missing 'kubeconfig' key"
+
+		meta.SetStatusCondition(&target.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "InvalidSecret",
+			Message: "Secret missing 'kubeconfig' key",
+		})
+
+		_ = r.Status().Update(ctx, target)
+		return ctrl.Result{}, nil
+	}
+
+	// Register cluster with ClusterManager
+	if r.ClusterManager != nil {
+		if err := r.ClusterManager.AddCluster(
+			target.Spec.ClusterName,
+			target.Namespace,
+			string(kubeconfigData),
+		); err != nil {
+			r.Log.Error(err, "failed to register cluster", "cluster", target.Spec.ClusterName)
+			target.Status.Ready = false
+			target.Status.Message = fmt.Sprintf("Failed to register cluster: %v", err)
+
+			meta.SetStatusCondition(&target.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionFalse,
+				Reason:  "RegistrationFailed",
+				Message: fmt.Sprintf("Failed to register cluster: %v", err),
+			})
+
+			_ = r.Status().Update(ctx, target)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
+		r.Log.Info("successfully registered cluster",
+			"cluster", target.Spec.ClusterName,
+			"namespace", target.Namespace)
+
+		// Test connection
+		if err := r.ClusterManager.SyncCluster(ctx, target.Spec.ClusterName, target.Namespace); err != nil {
+			r.Log.Error(err, "cluster connection test failed", "cluster", target.Spec.ClusterName)
+			target.Status.Ready = false
+			target.Status.Message = fmt.Sprintf("Connection test failed: %v", err)
+
+			meta.SetStatusCondition(&target.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionFalse,
+				Reason:  "ConnectionFailed",
+				Message: fmt.Sprintf("Connection test failed: %v", err),
+			})
+
+			_ = r.Status().Update(ctx, target)
+			prometheus.SetClusterConnectionStatus(target.Spec.ClusterName, false)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
+		r.Log.Info("cluster connection verified", "cluster", target.Spec.ClusterName)
+	}
+
+	// Update status - cluster is ready
+	target.Status.Ready = true
+	target.Status.Message = "Target cluster is connected and ready"
+	now := metav1.Now()
+	target.Status.LastSyncTime = &now
+
 	meta.SetStatusCondition(&target.Status.Conditions, metav1.Condition{
 		Type:    "Ready",
 		Status:  metav1.ConditionTrue,
-		Reason:  "TargetReady",
-		Message: "IntegrationTarget is ready",
+		Reason:  "ClusterReady",
+		Message: "Successfully connected to target cluster",
 	})
 
 	if err := r.Status().Update(ctx, target); err != nil {
@@ -398,7 +744,7 @@ func (r *IntegrationTargetReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	prometheus.SetClusterConnectionStatus(target.Spec.ClusterName, true)
 
 	r.Log.Info("successfully reconciled integration target", "name", req.NamespacedName)
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
 func (r *IntegrationTargetReconciler) SetupWithManager(mgr ctrl.Manager) error {

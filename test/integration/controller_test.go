@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	ksitv1alpha1 "github.com/kubestellar/integration-toolkit/api/v1alpha1"
@@ -182,7 +183,7 @@ var _ = Describe("Integration Controller Tests", func() {
 	Context("When testing reconciler setup", func() {
 		It("Should setup IntegrationReconciler with manager", func() {
 			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-				Scheme: k8sScheme,
+				Scheme: scheme.Scheme,
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -198,7 +199,7 @@ var _ = Describe("Integration Controller Tests", func() {
 
 		It("Should setup IntegrationTargetReconciler with manager", func() {
 			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-				Scheme: k8sScheme,
+				Scheme: scheme.Scheme,
 			})
 			Expect(err).NotTo(HaveOccurred())
 

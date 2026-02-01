@@ -15,6 +15,7 @@ import (
 
 	ksitv1alpha1 "github.com/kubestellar/integration-toolkit/api/v1alpha1"
 	internalwebhook "github.com/kubestellar/integration-toolkit/internal/webhook"
+	"github.com/kubestellar/integration-toolkit/pkg/cluster"
 	"github.com/kubestellar/integration-toolkit/pkg/config"
 	"github.com/kubestellar/integration-toolkit/pkg/controller"
 )
@@ -104,20 +105,27 @@ func main() {
 	   // No need to call SetupWithManager directly
 	*/
 
-	// ✅ OPTION B: Direct Setup (Current approach - simpler)
+	// ✅ OPTION B: Direct Setup (Current approach)
+	// Create shared ClusterManager and ClusterInventory
+	clusterMgr := cluster.NewClusterManager(mgr.GetClient())
+	clusterInv := cluster.NewClusterInventory()
+
 	if err = (&controller.IntegrationReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Integration"),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Log:              ctrl.Log.WithName("controllers").WithName("Integration"),
+		ClusterManager:   clusterMgr,
+		ClusterInventory: clusterInv,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Integration")
 		os.Exit(1)
 	}
 
 	if err = (&controller.IntegrationTargetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Log:    ctrl.Log.WithName("controllers").WithName("IntegrationTarget"),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Log:            ctrl.Log.WithName("controllers").WithName("IntegrationTarget"),
+		ClusterManager: clusterMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "IntegrationTarget")
 		os.Exit(1)

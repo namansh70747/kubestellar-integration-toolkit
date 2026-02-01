@@ -17,6 +17,7 @@ type Manager struct {
 	client           client.Client
 	scheme           *runtime.Scheme
 	clusterInventory *cluster.ClusterInventory
+	clusterManager   *cluster.ClusterManager
 }
 
 func NewManager(mgr manager.Manager, log logr.Logger) *Manager {
@@ -26,6 +27,7 @@ func NewManager(mgr manager.Manager, log logr.Logger) *Manager {
 		client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
 		clusterInventory: cluster.NewClusterInventory(),
+		clusterManager:   cluster.NewClusterManager(mgr.GetClient()),
 	}
 }
 
@@ -41,9 +43,11 @@ func (m *Manager) Start(ctx context.Context) error {
 
 func (m *Manager) setupControllers() error {
 	integrationReconciler := &IntegrationReconciler{
-		Client: m.client,
-		Scheme: m.scheme,
-		Log:    m.log.WithName("IntegrationReconciler"),
+		Client:           m.client,
+		Scheme:           m.scheme,
+		Log:              m.log.WithName("IntegrationReconciler"),
+		ClusterInventory: m.clusterInventory,
+		ClusterManager:   m.clusterManager,
 	}
 
 	if err := integrationReconciler.SetupWithManager(m.mgr); err != nil {
@@ -51,9 +55,10 @@ func (m *Manager) setupControllers() error {
 	}
 
 	targetReconciler := &IntegrationTargetReconciler{
-		Client: m.client,
-		Scheme: m.scheme,
-		Log:    m.log.WithName("IntegrationTargetReconciler"),
+		Client:         m.client,
+		Scheme:         m.scheme,
+		Log:            m.log.WithName("IntegrationTargetReconciler"),
+		ClusterManager: m.clusterManager,
 	}
 
 	if err := targetReconciler.SetupWithManager(m.mgr); err != nil {
@@ -73,4 +78,8 @@ func (m *Manager) GetScheme() *runtime.Scheme {
 
 func (m *Manager) GetClusterInventory() *cluster.ClusterInventory {
 	return m.clusterInventory
+}
+
+func (m *Manager) GetClusterManager() *cluster.ClusterManager {
+	return m.clusterManager
 }

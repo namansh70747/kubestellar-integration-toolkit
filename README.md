@@ -1,559 +1,320 @@
-# KubeStellar Integration Toolkit (KSIT)
+# KubeStellar Integration Toolkit
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/kubestellar/integration-toolkit)](https://goreportcard.com/report/github.com/kubestellar/integration-toolkit)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/kubestellar/integration-toolkit)](https://github.com/kubestellar/integration-toolkit/releases)
+A Kubernetes operator that monitors the health of DevOps tools across multiple clusters. Think of it as a centralized dashboard that continuously checks if your ArgoCD, Flux, Prometheus, and Istio installations are running correctly across all your clusters.
 
-The **KubeStellar Integration Toolkit (KSIT)** is a powerful framework designed to facilitate **integration patterns** between multi-cluster management platforms (like KubeStellar) and popular Kubernetes ecosystem tools including **ArgoCD**, **Flux**, **Prometheus**, and **Istio**.
+## What Problem Does This Solve?
 
-## 🎯 **Key Features**
+When managing multiple Kubernetes clusters, you typically install tools like ArgoCD for GitOps, Prometheus for monitoring, and Istio for service mesh. The problem? You have no easy way to know if these tools are healthy across all clusters without manually checking each one.
 
-- **🔄 Multi-Cluster GitOps**: Seamless integration with ArgoCD and Flux
-- **📊 Unified Observability**: Centralized monitoring with Prometheus and Grafana
-- **🌐 Service Mesh Integration**: Advanced traffic management with Istio
-- **🎛️ Declarative Configuration**: Kubernetes-native CRDs for managing integrations
-- **🔐 Enterprise-Ready**: Built with security, scalability, and reliability in mind
-- **🛠️ Extensible Architecture**: Plugin-based design for custom integrations
+KSIT solves this by providing:
 
----
+- A single API to check the status of all your DevOps tools across all clusters
+- Automatic health monitoring every 30 seconds
+- Kubernetes-native CRDs to declaratively define what should be monitored
+- Centralized visibility without needing to switch contexts between clusters
 
-## 📋 **Table of Contents**
+## How It Works
 
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Usage Examples](#usage-examples)
-- [Configuration](#configuration)
-- [Development](#development)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [License](#license)
+KSIT runs as a controller in your control plane cluster. You tell it about your workload clusters (cluster-1, cluster-2, etc.) and which integrations to monitor (ArgoCD, Flux, Prometheus, Istio). It then:
 
----
+1. Connects to each cluster using kubeconfig secrets
+2. Checks if the specified tools are installed and healthy
+3. Reports the aggregated status back to you
+4. Continuously reconciles every 30 seconds
 
-## 🏗️ **Architecture**
+This means you can run a single command to see if ArgoCD is working on all 10 of your clusters, instead of checking each one manually.
 
-KSIT follows a **controller-based architecture** leveraging the Kubernetes operator pattern:
+## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    KubeStellar Control Plane                 │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              KSIT Controller Manager                  │   │
-│  │  ┌────────────────┐  ┌────────────────────────────┐  │   │
-│  │  │  Integration   │  │  IntegrationTarget         │  │   │
-│  │  │  Reconciler    │  │  Reconciler                │  │   │
-│  │  └────────┬───────┘  └────────────┬───────────────┘  │   │
-│  └───────────┼──────────────────────┼────────────────────┘   │
-│              │                      │                        │
-└──────────────┼──────────────────────┼────────────────────────┘
-               │                      │
-       ┌───────┴──────┬───────────────┴────────┬────────────┐
-       │              │                        │            │
-   ┌───▼───┐     ┌───▼───┐              ┌─────▼──┐    ┌───▼────┐
-   │ ArgoCD│     │ Flux  │              │Promethe│    │ Istio  │
-   │       │     │       │              │us      │    │        │
-   └───┬───┘     └───┬───┘              └────┬───┘    └───┬────┘
-       │             │                       │            │
-       └─────────────┴───────────┬───────────┴────────────┘
-                                 │
-                    ┌────────────▼──────────────┐
-                    │    Managed Clusters       │
-                    │  (cluster1, cluster2, ...) │
-                    └───────────────────────────┘
+The system has two main custom resources:
+
+**IntegrationTarget**: Represents a cluster you want to monitor
+
+```yaml
+apiVersion: ksit.kubestellar.io/v1alpha1
+kind: IntegrationTarget
+metadata:
+  name: production-cluster
+spec:
+  clusterName: prod-us-east-1
 ```
 
-**Core Components:**
+**Integration**: Defines what tool to monitor on which clusters
 
-1. **Custom Resource Definitions (CRDs)**
-   - `Integration`: Defines integration configuration
-   - `IntegrationTarget`: Specifies target clusters
+```yaml
+apiVersion: ksit.kubestellar.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-monitoring
+spec:
+  type: argocd
+  targetClusters:
+    - production-cluster
+    - staging-cluster
+```
 
-2. **Controllers**
-   - `IntegrationReconciler`: Manages integration lifecycle
-   - `IntegrationTargetReconciler`: Handles cluster connections
+The controller watches these resources and performs health checks on the target clusters.
 
-3. **Integration Clients**
-   - ArgoCD client for GitOps management
-   - Flux client for continuous delivery
-   - Prometheus client for metrics collection
-   - Istio client for service mesh configuration
+## Prerequisites
 
----
+You need the following installed on your machine:
 
-## 📦 **Prerequisites**
+- Go 1.21 or later
+- Docker
+- kubectl
+- kind (for local testing)
+- Optionally: helm, flux CLI, istioctl (if you want to install those tools)
 
-### **Required**
+## Quick Start
 
-- **Go**: 1.21+ ([Download](https://go.dev/dl/))
-- **Kubernetes Cluster**: 1.27+ ([Kind](https://kind.sigs.k8s.io/), [Minikube](https://minikube.sigs.k8s.io/), or cloud provider)
-- **kubectl**: 1.27+ ([Install](https://kubernetes.io/docs/tasks/tools/))
-- **Docker**: 20.10+ ([Install](https://docs.docker.com/get-docker/))
-
-### **Optional (for specific integrations)**
-
-- **ArgoCD**: 2.8+ ([Install](https://argo-cd.readthedocs.io/en/stable/getting_started/))
-- **Flux**: 2.0+ ([Install](https://fluxcd.io/flux/installation/))
-- **Prometheus Operator**: 0.68+ ([Install](https://github.com/prometheus-operator/prometheus-operator))
-- **Istio**: 1.19+ ([Install](https://istio.io/latest/docs/setup/getting-started/))
-- **KubeStellar**: 0.20+ ([Install](https://docs.kubestellar.io/))
-
----
-
-## 🚀 **Quick Start**
-
-### **1. Clone the Repository**
+If you want to see KSIT in action quickly:
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/kubestellar/integration-toolkit.git
 cd integration-toolkit
+
+# 2. Run the complete setup (creates clusters, builds controller, installs tools)
+make quickstart
+
+# 3. Check integration status
+kubectl get integrations -n ksit-system
+
+# 4. See detailed status
+kubectl describe integration argocd-multi-cluster -n ksit-system
 ```
 
-### **2. Install Dependencies**
+That's it. The quickstart command will:
+
+- Create 3 kind clusters (1 control plane, 2 workload clusters)
+- Build and deploy the KSIT controller
+- Install ArgoCD, Flux, Prometheus, and Istio on the workload clusters
+- Create sample Integration resources
+
+## Manual Setup
+
+If you prefer to set things up step by step:
+
+### Step 1: Create Clusters
 
 ```bash
-make tools          # Install required tools
-make install-deps   # Install Go dependencies
+make setup-clusters
 ```
 
-### **3. Run Locally**
+This creates three kind clusters: `ksit-control`, `cluster-1`, and `cluster-2`.
+
+### Step 2: Build and Deploy Controller
 
 ```bash
-# Generate CRDs and code
-make generate manifests
+make build-controller
+make deploy-local
+```
 
-# Install CRDs
-make install
+This builds the Docker image and deploys it to your control cluster.
 
-# Run controller
+### Step 3: Install DevOps Tools
+
+```bash
+make install-integrations
+```
+
+This installs ArgoCD, Flux, Prometheus, and Istio on your workload clusters.
+
+### Step 4: Create Integration Resources
+
+```bash
+kubectl apply -f config/samples/
+```
+
+This tells KSIT what to monitor.
+
+## Configuration
+
+### Adding a New Cluster
+
+Create an IntegrationTarget and a kubeconfig secret:
+
+```bash
+# Create kubeconfig secret
+kubectl create secret generic my-cluster-kubeconfig \
+  --from-file=kubeconfig=/path/to/kubeconfig \
+  -n ksit-system
+
+# Create IntegrationTarget
+kubectl apply -f - <<EOF
+apiVersion: ksit.kubestellar.io/v1alpha1
+kind: IntegrationTarget
+metadata:
+  name: my-cluster
+  namespace: ksit-system
+spec:
+  clusterName: my-cluster
+EOF
+```
+
+### Monitoring a Tool on Specific Clusters
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: ksit.kubestellar.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-prod
+  namespace: ksit-system
+spec:
+  type: argocd
+  targetClusters:
+    - my-cluster
+EOF
+```
+
+## Checking Health Status
+
+View all integrations:
+
+```bash
+kubectl get integrations -n ksit-system
+```
+
+See detailed information:
+
+```bash
+kubectl describe integration argocd-prod -n ksit-system
+```
+
+Watch logs in real-time:
+
+```bash
+kubectl logs -f deployment/ksit-controller-manager -n ksit-system
+```
+
+## Supported Integrations
+
+Currently supported:
+
+- **ArgoCD**: Checks if argocd-server, argocd-repo-server, and argocd-application-controller are running
+- **Flux**: Verifies source-controller, kustomize-controller, helm-controller, and notification-controller
+- **Prometheus**: Monitors prometheus-operator, grafana, prometheus StatefulSet, and alertmanager
+- **Istio**: Checks istiod and optionally istio-ingressgateway
+
+## Development
+
+Build from source:
+
+```bash
+make build
+```
+
+Run tests:
+
+```bash
+make test
+```
+
+Run controller locally (outside cluster):
+
+```bash
 make run
 ```
 
-### **4. Deploy Sample Integration**
+Generate CRDs after modifying API:
 
 ```bash
-# Deploy ArgoCD integration example
-kubectl apply -f examples/multi-cluster-argocd/integration.yaml
-kubectl apply -f examples/multi-cluster-argocd/bindingpolicy.yaml
-kubectl apply -f examples/multi-cluster-argocd/applicationset.yaml
-
-# Verify integration
-kubectl get integration -n argocd
-kubectl describe integration argocd-multi-cluster -n argocd
+make manifests
 ```
 
----
+## Cleanup
 
-## 📥 **Installation**
-
-### **Option 1: Using Kustomize**
+Remove everything:
 
 ```bash
-# Install CRDs
-kubectl apply -k config/crd
-
-# Deploy controller
-kubectl apply -k config/default
-
-# Verify deployment
-kubectl get pods -n ksit-system
+make cleanup
 ```
 
-### **Option 2: Using Helm**
+This deletes all kind clusters and removes all resources.
 
-```bash
-# Add Helm repository (when published)
-helm repo add ksit https://kubestellar.github.io/integration-toolkit
-
-# Install chart
-helm install ksit ksit/ksit \
-  --namespace ksit-system \
-  --create-namespace \
-  --set image.tag=v0.1.0
-
-# Verify installation
-helm status ksit -n ksit-system
-```
-
-### **Option 3: Using Make**
-
-```bash
-# Build and deploy
-make docker-build
-make deploy
-
-# Or deploy with Helm
-make deploy-helm
-```
-
----
-
-## 💡 **Usage Examples**
-
-### **ArgoCD Integration**
-
-Create an integration to manage ArgoCD applications across clusters:
-
-```yaml
-apiVersion: ksit.io/v1alpha1
-kind: Integration
-metadata:
-  name: argocd-multi-cluster
-  namespace: argocd
-spec:
-  type: argocd
-  enabled: true
-  targetClusters:
-    - cluster1
-    - cluster2
-  config:
-    serverURL: "https://argocd-server.argocd.svc.cluster.local"
-    namespace: "argocd"
-    insecure: "false"
-```
-
-```bash
-kubectl apply -f config/samples/argocd_integration.yaml
-```
-
-### **Flux Integration**
-
-Configure Flux for GitOps across multiple clusters:
-
-```yaml
-apiVersion: ksit.io/v1alpha1
-kind: Integration
-metadata:
-  name: flux-multi-cluster
-  namespace: flux-system
-spec:
-  type: flux
-  enabled: true
-  targetClusters:
-    - cluster1
-    - cluster2
-  config:
-    namespace: "flux-system"
-    interval: "5m"
-```
-
-```bash
-kubectl apply -f config/samples/flux_integration.yaml
-```
-
-### **Prometheus Integration**
-
-Set up centralized monitoring:
-
-```yaml
-apiVersion: ksit.io/v1alpha1
-kind: Integration
-metadata:
-  name: prometheus-monitoring
-  namespace: monitoring
-spec:
-  type: prometheus
-  enabled: true
-  targetClusters:
-    - cluster1
-    - cluster2
-  config:
-    url: "http://prometheus.monitoring.svc.cluster.local:9090"
-    scrapeInterval: "30s"
-```
-
-```bash
-kubectl apply -f config/samples/prometheus_integration.yaml
-```
-
-### **Istio Integration**
-
-Configure service mesh across clusters:
-
-```yaml
-apiVersion: ksit.io/v1alpha1
-kind: Integration
-metadata:
-  name: istio-mesh
-  namespace: istio-system
-spec:
-  type: istio
-  enabled: true
-  targetClusters:
-    - cluster1
-    - cluster2
-  config:
-    namespace: "istio-system"
-    enableMTLS: "true"
-```
-
-```bash
-kubectl apply -f config/samples/istio_integration.yaml
-```
-
----
-
-## ⚙️ **Configuration**
-
-### **Environment Variables**
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KUBECONFIG` | Path to kubeconfig file | `~/.kube/config` |
-| `LOG_LEVEL` | Logging level (debug, info, warn, error) | `info` |
-| `METRICS_BIND_ADDRESS` | Metrics server address | `:8080` |
-| `HEALTH_PROBE_BIND_ADDRESS` | Health probe address | `:8081` |
-| `LEADER_ELECT` | Enable leader election | `false` |
-| `ENABLE_WEBHOOK` | Enable validating webhooks | `false` |
-
-### **Controller Flags**
-
-```bash
-./bin/ksit \
-  --metrics-bind-address=:8080 \
-  --health-probe-bind-address=:8081 \
-  --leader-elect=true \
-  --enable-webhook=true \
-  --webhook-port=9443
-```
-
----
-
-## 🛠️ **Development**
-
-### **Project Structure**
+## Project Structure
 
 ```
 .
-├── api/v1alpha1/           # API definitions
-├── cmd/ksit/               # Main application entry point
-├── config/                 # Kubernetes manifests
-│   ├── crd/               # Custom Resource Definitions
-│   ├── manager/           # Controller deployment
-│   ├── rbac/              # RBAC configurations
-│   ├── samples/           # Sample integrations
-│   └── webhook/           # Webhook configurations
-├── deploy/                # Deployment configurations
-│   ├── helm/             # Helm charts
-│   └── kustomize/        # Kustomize overlays
-├── docs/                  # Documentation
-├── examples/              # Example integrations
-├── internal/              # Internal packages
-│   ├── utils/            # Utility functions
-│   └── webhook/          # Webhook validators
-├── pkg/                   # Public packages
-│   ├── cluster/          # Cluster management
-│   ├── config/           # Configuration handling
-│   ├── controller/       # Controller logic
-│   ├── integrations/     # Integration clients
-│   └── kubestellar/      # KubeStellar integration
-├── scripts/               # Build and utility scripts
-└── test/                  # Tests
-    ├── e2e/              # End-to-end tests
-    └── integration/      # Integration tests
+├── api/v1alpha1/              # CRD definitions
+├── cmd/ksit/                  # Main entry point
+├── pkg/
+│   ├── controller/            # Reconciliation logic
+│   ├── cluster/               # Cluster management
+│   └── integrations/          # Integration-specific clients
+├── config/
+│   ├── crd/                   # Generated CRDs
+│   ├── samples/               # Example resources
+│   └── manager/               # Controller deployment
+├── scripts/                   # Helper scripts
+└── test/                      # Test suites
 ```
 
-### **Building from Source**
+## How Health Checks Work
 
-```bash
-# Build binary
-make build
+Each integration type has specific health check logic:
 
-# Build Docker image
-make docker-build
+**ArgoCD**: Queries the argocd namespace for:
 
-# Run tests
-make test
+- Deployment: argocd-server (must have 1+ ready replicas)
+- Deployment: argocd-repo-server (must have 1+ ready replicas)
+- StatefulSet: argocd-application-controller (must have 1+ ready replicas)
+- Service endpoints must exist
 
-# Run linters
-make lint
-```
+**Flux**: Checks flux-system namespace for running controllers
 
-### **Running Tests**
+**Prometheus**: Looks for prometheus-operator deployment and prometheus StatefulSet
 
-```bash
-# Unit tests
-make test
+**Istio**: Verifies istiod deployment in istio-system namespace
 
-# Integration tests
-make test-integration
+If any component is missing or unhealthy, the Integration status changes to "Failed" with a descriptive message.
 
-# E2E tests (requires cluster)
-make test-e2e
+## Troubleshooting
 
-# All tests with coverage
-make test-all
-go tool cover -html=coverage.out
-```
+**Problem**: Integration shows "Failed" but pods are running
 
----
+Check if the namespace is correct. By default, KSIT expects:
 
-## 🚢 **Deployment**
+- ArgoCD in `argocd` namespace
+- Flux in `flux-system` namespace
+- Prometheus in `monitoring` namespace
+- Istio in `istio-system` namespace
 
-### **Development Environment**
+**Problem**: "cluster not found" error
 
-```bash
-# Deploy to local cluster
-make deploy
+Make sure the IntegrationTarget exists and the kubeconfig secret is properly created with the correct cluster API server address.
 
-# Deploy samples
-make deploy-samples
+**Problem**: Controller not starting
 
-# Watch logs
-make logs
-```
+Check logs: `kubectl logs deployment/ksit-controller-manager -n ksit-system`
 
-### **Production Environment**
+Common issues:
 
-```bash
-# Build production image
-make docker-build IMG=your-registry/ksit:v0.1.0
+- CRDs not installed
+- RBAC permissions missing
+- Image not loaded into kind cluster
 
-# Push image
-make docker-push IMG=your-registry/ksit:v0.1.0
+## Contributing
 
-# Deploy with custom image
-make deploy IMG=your-registry/ksit:v0.1.0
-```
-
-### **Using Helm (Recommended for Production)**
-
-```bash
-# Install with custom values
-helm install ksit deploy/helm/ksit \
-  --namespace ksit-system \
-  --create-namespace \
-  --values your-values.yaml
-
-# Upgrade
-helm upgrade ksit deploy/helm/ksit -n ksit-system
-
-# Uninstall
-helm uninstall ksit -n ksit-system
-```
-
----
-
-## 🔍 **Troubleshooting**
-
-### **Common Issues**
-
-#### **1. Controller Not Starting**
-
-```bash
-# Check controller logs
-kubectl logs -n ksit-system -l control-plane=controller-manager
-
-# Check CRDs are installed
-kubectl get crd | grep ksit.io
-
-# Verify RBAC permissions
-kubectl auth can-i list integrations --as=system:serviceaccount:ksit-system:ksit-controller
-```
-
-#### **2. Integration Not Reconciling**
-
-```bash
-# Check integration status
-kubectl describe integration <name> -n <namespace>
-
-# Check controller logs
-kubectl logs -n ksit-system -l control-plane=controller-manager | grep <integration-name>
-
-# Force reconciliation
-kubectl annotate integration <name> -n <namespace> reconcile=true --overwrite
-```
-
-#### **3. Webhook Validation Errors**
-
-```bash
-# Check webhook certificates
-kubectl get secret ksit-webhook-server-cert -n ksit-system
-
-# Regenerate certificates
-./scripts/generate-webhook-certs.sh
-
-# Verify webhook configuration
-kubectl get validatingwebhookconfiguration ksit-validating-webhook-configuration
-```
-
-### **Debug Mode**
-
-Run controller with verbose logging:
-
-```bash
-kubectl set env deployment/ksit-controller-manager -n ksit-system LOG_LEVEL=debug
-```
-
----
-
-## 📚 **Documentation**
-
-- **[Architecture Guide](docs/architecture.md)**: Detailed system architecture
-- **[Getting Started](docs/getting-started.md)**: Step-by-step setup guide
-- **[API Reference](docs/api-reference.md)**: CRD specifications
-- **[Integration Guides](docs/integrations/)**: Tool-specific documentation
-  - [ArgoCD Integration](docs/integrations/argocd.md)
-  - [Flux Integration](docs/integrations/flux.md)
-  - [Prometheus Integration](docs/integrations/prometheus.md)
-  - [Istio Integration](docs/integrations/istio.md)
-- **[Troubleshooting Guide](docs/troubleshooting.md)**: Common issues and solutions
-
----
-
-## 🤝 **Contributing**
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### **Development Workflow**
+Contributions are welcome. Please:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch
 3. Make your changes
-4. Run tests (`make test lint`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+4. Add tests
+5. Submit a pull request
 
-### **Code of Conduct**
+Make sure tests pass before submitting:
 
-This project adheres to the [CNCF Code of Conduct](https://github.com/cncf/foundation/blob/main/code-of-conduct.md).
+```bash
+make test-all
+```
 
----
+## License
 
-## 📄 **License**
+Apache License 2.0. See LICENSE file for details.
 
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
+## Questions or Issues?
 
----
-
-## 🌟 **Acknowledgments**
-
-- Built on top of [KubeStellar](https://docs.kubestellar.io/)
-- Powered by [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime)
-- Inspired by the Kubernetes operator pattern
-
----
-
-## 📞 **Support & Community**
-
-- **Issues**: [GitHub Issues](https://github.com/kubestellar/integration-toolkit/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/kubestellar/integration-toolkit/discussions)
-- **Slack**: [#kubestellar on Kubernetes Slack](https://kubernetes.slack.com/messages/kubestellar)
-
----
-
-## 🗺️ **Roadmap**
-
-- [ ] Support for additional integrations (Tekton, Kyverno)
-- [ ] Enhanced multi-tenancy support
-- [ ] Automated disaster recovery
-- [ ] Advanced policy enforcement
-- [ ] GUI dashboard for management
-
----
-
-**Made with ❤️ by the KubeStellar Community**
+Open an issue on GitHub or reach out to the KubeStellar community.
