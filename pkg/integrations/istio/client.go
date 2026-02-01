@@ -145,6 +145,11 @@ func (c *Client) CreateVirtualService(ctx context.Context, vs *VirtualService) e
 						},
 						"weight": dest.Weight,
 					}
+					if dest.Port > 0 {
+						d["destination"].(map[string]interface{})["port"] = map[string]interface{}{
+							"number": dest.Port,
+						}
+					}
 					destinations = append(destinations, d)
 				}
 				r["route"] = destinations
@@ -193,5 +198,22 @@ func (c *Client) DeleteVirtualService(ctx context.Context, name, namespace strin
 
 // ReconcileCluster reconciles Istio configuration for a cluster
 func (c *Client) ReconcileCluster(ctx context.Context, clusterName string) error {
+	// Perform health check
+	if err := c.HealthCheck(); err != nil {
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	// List all VirtualServices
+	vsList := &unstructured.UnstructuredList{}
+	vsList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "networking.istio.io",
+		Version: "v1beta1",
+		Kind:    "VirtualServiceList",
+	})
+
+	if err := c.List(ctx, vsList); err != nil {
+		return fmt.Errorf("failed to list VirtualServices: %w", err)
+	}
+
 	return nil
 }

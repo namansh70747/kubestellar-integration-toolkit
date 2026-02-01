@@ -8,35 +8,36 @@ metadata:
     app.kubernetes.io/name: ksit
     app.kubernetes.io/component: controller
 spec:
+  replicas: 1
   selector:
     matchLabels:
       control-plane: controller-manager
-  replicas: 1
   template:
     metadata:
-      annotations:
-        kubectl.kubernetes.io/default-container: manager
       labels:
         control-plane: controller-manager
+        app.kubernetes.io/name: ksit
     spec:
+      serviceAccountName: ksit-controller
       securityContext:
         runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
       containers:
-        - command:
-            - /ksit
+        - name: manager
+          image: controller:latest
+          imagePullPolicy: Never
+          command:
+            - /manager
           args:
             - --leader-elect
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081
-          image: kubestellar/integration-toolkit:latest
-          name: manager
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+          ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+            - containerPort: 8081
+              name: health
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
@@ -49,16 +50,16 @@ spec:
               port: 8081
             initialDelaySeconds: 5
             periodSeconds: 10
-          ports:
-            - containerPort: 8080
-              name: metrics
-              protocol: TCP
           resources:
             limits:
               cpu: 500m
-              memory: 128Mi
+              memory: 512Mi
             requests:
-              cpu: 10m
-              memory: 64Mi
-      serviceAccountName: ksit-controller
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       terminationGracePeriodSeconds: 10

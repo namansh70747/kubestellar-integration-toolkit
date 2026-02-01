@@ -40,37 +40,6 @@ func NewKubeStellarClient(config *rest.Config, scheme *runtime.Scheme) (*KubeSte
 	}, nil
 }
 
-// NewDefaultKubeStellarClient creates a new KubeStellar client with default config
-func NewDefaultKubeStellarClient() (*KubeStellarClient, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
-	}
-
-	scheme := runtime.NewScheme()
-
-	return NewKubeStellarClient(config, scheme)
-}
-
-// HealthCheck performs a health check on the KubeStellar API server
-func (kc *KubeStellarClient) HealthCheck(ctx context.Context) error {
-	_, err := kc.ListBindingPolicies(ctx, "")
-	if err != nil {
-		return fmt.Errorf("health check failed: %w", err)
-	}
-	return nil
-}
-
-// GetServerVersion retrieves the server version
-func (kc *KubeStellarClient) GetServerVersion(ctx context.Context) (string, error) {
-	return "v1alpha1", nil
-}
-
-// ValidateConnection validates the client connection
-func (kc *KubeStellarClient) ValidateConnection(ctx context.Context) error {
-	return kc.HealthCheck(ctx)
-}
-
 // BindingPolicy represents a KubeStellar BindingPolicy
 type BindingPolicy struct {
 	Name             string
@@ -121,82 +90,45 @@ func (kc *KubeStellarClient) CreateBindingPolicy(ctx context.Context, bp *Bindin
 
 	// Set cluster selectors
 	if len(bp.ClusterSelectors) > 0 {
-		clusterSelectors := make([]interface{}, 0, len(bp.ClusterSelectors))
-		for _, cs := range bp.ClusterSelectors {
-			selector := make(map[string]interface{})
-
-			if len(cs.MatchLabels) > 0 {
-				selector["matchLabels"] = cs.MatchLabels
+		selectors := make([]interface{}, 0, len(bp.ClusterSelectors))
+		for _, selector := range bp.ClusterSelectors {
+			s := make(map[string]interface{})
+			if len(selector.MatchLabels) > 0 {
+				s["matchLabels"] = selector.MatchLabels
 			}
-
-			if len(cs.MatchExpressions) > 0 {
-				matchExpressions := make([]interface{}, 0, len(cs.MatchExpressions))
-				for _, expr := range cs.MatchExpressions {
-					matchExpressions = append(matchExpressions, map[string]interface{}{
+			if len(selector.MatchExpressions) > 0 {
+				expressions := make([]interface{}, 0, len(selector.MatchExpressions))
+				for _, expr := range selector.MatchExpressions {
+					expressions = append(expressions, map[string]interface{}{
 						"key":      expr.Key,
 						"operator": expr.Operator,
 						"values":   expr.Values,
 					})
 				}
-				selector["matchExpressions"] = matchExpressions
+				s["matchExpressions"] = expressions
 			}
-
-			clusterSelectors = append(clusterSelectors, selector)
+			selectors = append(selectors, s)
 		}
-		spec["clusterSelectors"] = clusterSelectors
+		spec["clusterSelectors"] = selectors
 	}
 
 	// Set downsync rules
 	if len(bp.DownSyncRules) > 0 {
-		downSyncRules := make([]interface{}, 0, len(bp.DownSyncRules))
+		rules := make([]interface{}, 0, len(bp.DownSyncRules))
 		for _, rule := range bp.DownSyncRules {
-			ruleMap := make(map[string]interface{})
-
-			if rule.APIGroup != "" {
-				ruleMap["apiGroup"] = rule.APIGroup
+			r := map[string]interface{}{
+				"apiGroup":  rule.APIGroup,
+				"resources": rule.Resources,
 			}
-
-			if len(rule.Resources) > 0 {
-				ruleMap["resources"] = rule.Resources
-			}
-
 			if len(rule.Namespaces) > 0 {
-				ruleMap["namespaces"] = rule.Namespaces
+				r["namespaces"] = rule.Namespaces
 			}
-
 			if len(rule.ObjectNames) > 0 {
-				ruleMap["objectNames"] = rule.ObjectNames
+				r["objectNames"] = rule.ObjectNames
 			}
-
-			if len(rule.LabelSelectors) > 0 {
-				labelSelectors := make([]interface{}, 0, len(rule.LabelSelectors))
-				for _, ls := range rule.LabelSelectors {
-					labelSelector := make(map[string]interface{})
-
-					if len(ls.MatchLabels) > 0 {
-						labelSelector["matchLabels"] = ls.MatchLabels
-					}
-
-					if len(ls.MatchExpressions) > 0 {
-						matchExpressions := make([]interface{}, 0, len(ls.MatchExpressions))
-						for _, expr := range ls.MatchExpressions {
-							matchExpressions = append(matchExpressions, map[string]interface{}{
-								"key":      expr.Key,
-								"operator": string(expr.Operator),
-								"values":   expr.Values,
-							})
-						}
-						labelSelector["matchExpressions"] = matchExpressions
-					}
-
-					labelSelectors = append(labelSelectors, labelSelector)
-				}
-				ruleMap["labelSelectors"] = labelSelectors
-			}
-
-			downSyncRules = append(downSyncRules, ruleMap)
+			rules = append(rules, r)
 		}
-		spec["downsync"] = downSyncRules
+		spec["downsync"] = rules
 	}
 
 	if err := unstructured.SetNestedMap(bindingPolicy.Object, spec, "spec"); err != nil {
@@ -240,53 +172,31 @@ func (kc *KubeStellarClient) UpdateBindingPolicy(ctx context.Context, bp *Bindin
 
 	// Update cluster selectors
 	if len(bp.ClusterSelectors) > 0 {
-		clusterSelectors := make([]interface{}, 0, len(bp.ClusterSelectors))
-		for _, cs := range bp.ClusterSelectors {
-			selector := make(map[string]interface{})
-
-			if len(cs.MatchLabels) > 0 {
-				selector["matchLabels"] = cs.MatchLabels
+		selectors := make([]interface{}, 0, len(bp.ClusterSelectors))
+		for _, selector := range bp.ClusterSelectors {
+			s := make(map[string]interface{})
+			if len(selector.MatchLabels) > 0 {
+				s["matchLabels"] = selector.MatchLabels
 			}
-
-			if len(cs.MatchExpressions) > 0 {
-				matchExpressions := make([]interface{}, 0, len(cs.MatchExpressions))
-				for _, expr := range cs.MatchExpressions {
-					matchExpressions = append(matchExpressions, map[string]interface{}{
-						"key":      expr.Key,
-						"operator": expr.Operator,
-						"values":   expr.Values,
-					})
-				}
-				selector["matchExpressions"] = matchExpressions
-			}
-
-			clusterSelectors = append(clusterSelectors, selector)
+			selectors = append(selectors, s)
 		}
-		spec["clusterSelectors"] = clusterSelectors
+		spec["clusterSelectors"] = selectors
 	}
 
 	// Update downsync rules
 	if len(bp.DownSyncRules) > 0 {
-		downSyncRules := make([]interface{}, 0, len(bp.DownSyncRules))
+		rules := make([]interface{}, 0, len(bp.DownSyncRules))
 		for _, rule := range bp.DownSyncRules {
-			ruleMap := make(map[string]interface{})
-
-			if rule.APIGroup != "" {
-				ruleMap["apiGroup"] = rule.APIGroup
-			}
-			if len(rule.Resources) > 0 {
-				ruleMap["resources"] = rule.Resources
+			r := map[string]interface{}{
+				"apiGroup":  rule.APIGroup,
+				"resources": rule.Resources,
 			}
 			if len(rule.Namespaces) > 0 {
-				ruleMap["namespaces"] = rule.Namespaces
+				r["namespaces"] = rule.Namespaces
 			}
-			if len(rule.ObjectNames) > 0 {
-				ruleMap["objectNames"] = rule.ObjectNames
-			}
-
-			downSyncRules = append(downSyncRules, ruleMap)
+			rules = append(rules, r)
 		}
-		spec["downsync"] = downSyncRules
+		spec["downsync"] = rules
 	}
 
 	if err := unstructured.SetNestedMap(existing.Object, spec, "spec"); err != nil {
@@ -322,8 +232,11 @@ func (kc *KubeStellarClient) GetBindingPolicyStatus(ctx context.Context, name, n
 	}
 
 	status, found, err := unstructured.NestedMap(bp.Object, "status")
-	if err != nil || !found {
-		return map[string]interface{}{}, nil
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status: %w", err)
+	}
+	if !found {
+		return make(map[string]interface{}), nil
 	}
 
 	return status, nil
@@ -337,28 +250,19 @@ func (kc *KubeStellarClient) AddClusterSelector(ctx context.Context, name, names
 	}
 
 	spec, found, err := unstructured.NestedMap(bp.Object, "spec")
-	if err != nil {
-		return fmt.Errorf("failed to get spec: %w", err)
-	}
-	if !found {
+	if err != nil || !found {
 		spec = make(map[string]interface{})
 	}
 
-	clusterSelectors, found, err := unstructured.NestedSlice(spec, "clusterSelectors")
-	if err != nil {
-		return fmt.Errorf("failed to get clusterSelectors: %w", err)
-	}
-	if !found {
-		clusterSelectors = []interface{}{}
-	}
+	selectors, _, _ := unstructured.NestedSlice(spec, "clusterSelectors")
 
 	newSelector := make(map[string]interface{})
 	if len(selector.MatchLabels) > 0 {
 		newSelector["matchLabels"] = selector.MatchLabels
 	}
 
-	clusterSelectors = append(clusterSelectors, newSelector)
-	spec["clusterSelectors"] = clusterSelectors
+	selectors = append(selectors, newSelector)
+	spec["clusterSelectors"] = selectors
 
 	if err := unstructured.SetNestedMap(bp.Object, spec, "spec"); err != nil {
 		return fmt.Errorf("failed to set spec: %w", err)
@@ -380,11 +284,12 @@ func (kc *KubeStellarClient) ListBindingPolicies(ctx context.Context, namespace 
 		Kind:    "BindingPolicyList",
 	})
 
-	listOpts := &client.ListOptions{
-		Namespace: namespace,
+	opts := &client.ListOptions{}
+	if namespace != "" {
+		opts.Namespace = namespace
 	}
 
-	if err := kc.List(ctx, bpList, listOpts); err != nil {
+	if err := kc.List(ctx, bpList, opts); err != nil {
 		return nil, fmt.Errorf("failed to list BindingPolicies: %w", err)
 	}
 

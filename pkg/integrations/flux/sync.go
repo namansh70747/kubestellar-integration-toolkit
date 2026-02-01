@@ -42,9 +42,6 @@ func (f *FluxClient) SyncGitRepository(ctx context.Context, name, namespace stri
 
 	gitRepo, err := f.GetGitRepository(ctx, name, namespace)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return fmt.Errorf("GitRepository %s/%s not found", namespace, name)
-		}
 		return fmt.Errorf("failed to get GitRepository: %w", err)
 	}
 
@@ -72,9 +69,6 @@ func (f *FluxClient) SyncKustomization(ctx context.Context, name, namespace stri
 	kustomization.SetGroupVersionKind(kustomizationGVK)
 
 	if err := f.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, kustomization); err != nil {
-		if errors.IsNotFound(err) {
-			return fmt.Errorf("Kustomization %s/%s not found", namespace, name)
-		}
 		return fmt.Errorf("failed to get Kustomization: %w", err)
 	}
 
@@ -98,7 +92,7 @@ func (f *FluxClient) SyncKustomization(ctx context.Context, name, namespace stri
 func (f *FluxClient) GetGitRepositoryStatus(ctx context.Context, name, namespace string) (*SyncStatus, error) {
 	gitRepo, err := f.GetGitRepository(ctx, name, namespace)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get GitRepository: %w", err)
 	}
 
 	status := &SyncStatus{
@@ -115,20 +109,19 @@ func (f *FluxClient) GetGitRepositoryStatus(ctx context.Context, name, namespace
 	// Check ready condition
 	conditions, found, err := unstructured.NestedSlice(statusMap, "conditions")
 	if err == nil && found {
-		for _, condInterface := range conditions {
-			cond, ok := condInterface.(map[string]interface{})
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
 			if !ok {
 				continue
 			}
 
-			condType, _, _ := unstructured.NestedString(cond, "type")
-			condStatus, _, _ := unstructured.NestedString(cond, "status")
-			reason, _, _ := unstructured.NestedString(cond, "reason")
-			message, _, _ := unstructured.NestedString(cond, "message")
+			condType, _, _ := unstructured.NestedString(condMap, "type")
+			condStatus, _, _ := unstructured.NestedString(condMap, "status")
+			reason, _, _ := unstructured.NestedString(condMap, "reason")
+			message, _, _ := unstructured.NestedString(condMap, "message")
 
 			if condType == "Ready" && condStatus == "True" {
 				status.Ready = true
-				status.Message = "GitRepository is ready"
 			}
 
 			status.Conditions = append(status.Conditions, Condition{
@@ -164,20 +157,19 @@ func (f *FluxClient) GetKustomizationStatus(ctx context.Context, name, namespace
 
 	conditions, found, err := unstructured.NestedSlice(statusMap, "conditions")
 	if err == nil && found {
-		for _, condInterface := range conditions {
-			cond, ok := condInterface.(map[string]interface{})
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
 			if !ok {
 				continue
 			}
 
-			condType, _, _ := unstructured.NestedString(cond, "type")
-			condStatus, _, _ := unstructured.NestedString(cond, "status")
-			reason, _, _ := unstructured.NestedString(cond, "reason")
-			message, _, _ := unstructured.NestedString(cond, "message")
+			condType, _, _ := unstructured.NestedString(condMap, "type")
+			condStatus, _, _ := unstructured.NestedString(condMap, "status")
+			reason, _, _ := unstructured.NestedString(condMap, "reason")
+			message, _, _ := unstructured.NestedString(condMap, "message")
 
 			if condType == "Ready" && condStatus == "True" {
 				status.Ready = true
-				status.Message = "Kustomization is ready"
 			}
 
 			status.Conditions = append(status.Conditions, Condition{
@@ -200,19 +192,18 @@ func (f *FluxClient) WaitForGitRepositoryReady(ctx context.Context, name, namesp
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	for {
+	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for GitRepository %s/%s to be ready", namespace, name)
-			}
-
 			status, err := f.GetGitRepositoryStatus(ctx, name, namespace)
 			if err != nil {
-				f.Log.Error(err, "failed to get GitRepository status")
-				continue
+				if errors.IsNotFound(err) {
+					f.Log.Info("GitRepository not found yet", "name", name)
+					continue
+				}
+				return err
 			}
 
 			if status.Ready {
@@ -223,6 +214,8 @@ func (f *FluxClient) WaitForGitRepositoryReady(ctx context.Context, name, namesp
 			f.Log.Info("GitRepository not ready yet", "name", name, "message", status.Message)
 		}
 	}
+
+	return fmt.Errorf("timeout waiting for GitRepository %s to be ready", name)
 }
 
 // WaitForKustomizationReady waits for a Kustomization to become ready
@@ -233,19 +226,18 @@ func (f *FluxClient) WaitForKustomizationReady(ctx context.Context, name, namesp
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	for {
+	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for Kustomization %s/%s to be ready", namespace, name)
-			}
-
 			status, err := f.GetKustomizationStatus(ctx, name, namespace)
 			if err != nil {
-				f.Log.Error(err, "failed to get Kustomization status")
-				continue
+				if errors.IsNotFound(err) {
+					f.Log.Info("Kustomization not found yet", "name", name)
+					continue
+				}
+				return err
 			}
 
 			if status.Ready {
@@ -256,6 +248,8 @@ func (f *FluxClient) WaitForKustomizationReady(ctx context.Context, name, namesp
 			f.Log.Info("Kustomization not ready yet", "name", name, "message", status.Message)
 		}
 	}
+
+	return fmt.Errorf("timeout waiting for Kustomization %s to be ready", name)
 }
 
 // SuspendKustomization suspends a Kustomization
@@ -278,5 +272,3 @@ func (f *FluxClient) SuspendKustomization(ctx context.Context, name, namespace s
 	f.Log.Info("Kustomization suspend status updated", "name", name, "suspend", suspend)
 	return nil
 }
-
-// Note: ListGitRepositories and ListKustomizations methods are defined in client.go

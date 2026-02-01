@@ -5,24 +5,27 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/kubestellar/integration-toolkit/pkg/cluster"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 type Manager struct {
-	mgr    manager.Manager
-	log    logr.Logger
-	client client.Client
-	scheme *runtime.Scheme
+	mgr              manager.Manager
+	log              logr.Logger
+	client           client.Client
+	scheme           *runtime.Scheme
+	clusterInventory *cluster.ClusterInventory
 }
 
 func NewManager(mgr manager.Manager, log logr.Logger) *Manager {
 	return &Manager{
-		mgr:    mgr,
-		log:    log,
-		client: mgr.GetClient(),
-		scheme: mgr.GetScheme(),
+		mgr:              mgr,
+		log:              log,
+		client:           mgr.GetClient(),
+		scheme:           mgr.GetScheme(),
+		clusterInventory: cluster.NewClusterInventory(),
 	}
 }
 
@@ -66,4 +69,8 @@ func (m *Manager) GetClient() client.Client {
 
 func (m *Manager) GetScheme() *runtime.Scheme {
 	return m.scheme
+}
+
+func (m *Manager) GetClusterInventory() *cluster.ClusterInventory {
+	return m.clusterInventory
 }

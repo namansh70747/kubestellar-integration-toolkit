@@ -180,31 +180,37 @@ istioctl dashboard kiali
 ## What Each Component Does
 
 ### ArgoCD Applications
+
 - **ksit-demo-cluster1**: Deploys 3 replicas with cluster1 label, region: us-east
 - **ksit-demo-cluster2**: Deploys 2 replicas with cluster2 label, region: us-west
 - Both sync from your GitHub repo automatically
 
 ### Flux GitRepository
+
 - Watches `https://github.com/namansh70747/kubestellar-integration-toolkit`
 - Syncs `examples/multi-cluster-workloads/` directory
 - Creates Kustomizations for deployment
 
 ### Prometheus ServiceMonitor
+
 - Scrapes KSIT controller metrics from ksit-system namespace
 - Exposes metrics on port 9090 at /metrics endpoint
 - Tracks integration reconciliation, sync operations, cluster status
 
 ### KubeStellar BindingPolicy
+
 - Propagates deployments, services, and configmaps from demo namespace
 - Targets clusters with label `location-group: edge`
 - Enables multi-cluster workload distribution
 
 ### Istio VirtualService & DestinationRule
+
 - Routes traffic 50/50 between cluster1 and cluster2 subsets
 - Enables header-based routing (cluster: cluster1 or cluster: cluster2)
 - Enforces mTLS between services
 
 ### KSIT Integrations
+
 - **ArgoCD Integration**: Monitors and can trigger syncs for all ArgoCD apps
 - **Flux Integration**: Watches GitRepositories and Kustomizations
 - **Prometheus Integration**: Validates connection and exports custom metrics
@@ -239,6 +245,7 @@ GitHub Repo (this project)
 ## Troubleshooting
 
 ### ArgoCD Applications Not Syncing
+
 ```bash
 # Check ArgoCD server logs
 kubectl logs -n argocd deployment/argocd-server --tail=50
@@ -252,6 +259,7 @@ argocd app sync ksit-demo-cluster2
 ```
 
 ### Flux Not Syncing
+
 ```bash
 # Check Flux logs
 kubectl logs -n flux-system deployment/source-controller --tail=50
@@ -263,6 +271,7 @@ flux reconcile kustomization ksit-demo-workloads
 ```
 
 ### KSIT Controller Not Starting
+
 ```bash
 # Check for build errors
 go build -o bin/ksit ./cmd/ksit/main.go
@@ -276,6 +285,7 @@ kubectl get crd integrationtargets.ksit.io
 ```
 
 ### Prometheus Not Scraping KSIT
+
 ```bash
 # Check ServiceMonitor
 kubectl get servicemonitor -n monitoring ksit-controller-metrics

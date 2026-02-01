@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -140,7 +138,7 @@ func (f *FluxClient) DeleteGitRepository(ctx context.Context, name string, names
 	gitRepo.SetName(name)
 	gitRepo.SetNamespace(namespace)
 
-	if err := f.Delete(ctx, gitRepo); err != nil && !errors.IsNotFound(err) {
+	if err := f.Delete(ctx, gitRepo); err != nil {
 		return fmt.Errorf("failed to delete GitRepository: %w", err)
 	}
 
@@ -182,27 +180,25 @@ func (f *FluxClient) ReconcileCluster(ctx context.Context, clusterName string) e
 	f.Log.Info("reconciling flux for cluster", "cluster", clusterName)
 
 	// For in-cluster mode, trigger reconciliation of all GitRepositories and Kustomizations
-	if clusterName == "in-cluster" || clusterName == "" {
-		// List all GitRepositories in flux-system namespace
-		gitRepos, err := f.ListGitRepositories(ctx, "flux-system")
-		if err != nil {
-			return fmt.Errorf("failed to list GitRepositories: %w", err)
-		}
+	gitRepos, err := f.ListGitRepositories(ctx, "flux-system")
+	if err != nil {
+		return fmt.Errorf("failed to list GitRepositories: %w", err)
+	}
 
-		for _, repo := range gitRepos {
-			name, _, _ := unstructured.NestedString(repo.Object, "metadata", "name")
-			f.Log.Info("found GitRepository", "name", name)
+	for _, repo := range gitRepos {
+		if err := f.TriggerReconcile(ctx, &repo); err != nil {
+			f.Log.Error(err, "failed to trigger GitRepository reconcile", "name", repo.GetName())
 		}
+	}
 
-		// List all Kustomizations in flux-system namespace
-		kustomizations, err := f.ListKustomizations(ctx, "flux-system")
-		if err != nil {
-			return fmt.Errorf("failed to list Kustomizations: %w", err)
-		}
+	kustomizations, err := f.ListKustomizations(ctx, "flux-system")
+	if err != nil {
+		return fmt.Errorf("failed to list Kustomizations: %w", err)
+	}
 
-		for _, ks := range kustomizations {
-			name, _, _ := unstructured.NestedString(ks.Object, "metadata", "name")
-			f.Log.Info("found Kustomization", "name", name)
+	for _, ks := range kustomizations {
+		if err := f.TriggerReconcile(ctx, &ks); err != nil {
+			f.Log.Error(err, "failed to trigger Kustomization reconcile", "name", ks.GetName())
 		}
 	}
 
@@ -219,9 +215,6 @@ func (f *FluxClient) ListGitRepositories(ctx context.Context, namespace string) 
 	})
 
 	if err := f.List(ctx, gitRepoList, &client.ListOptions{Namespace: namespace}); err != nil {
-		if errors.IsNotFound(err) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("failed to list GitRepositories: %w", err)
 	}
 
@@ -238,9 +231,6 @@ func (f *FluxClient) ListKustomizations(ctx context.Context, namespace string) (
 	})
 
 	if err := f.List(ctx, ksList, &client.ListOptions{Namespace: namespace}); err != nil {
-		if errors.IsNotFound(err) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("failed to list Kustomizations: %w", err)
 	}
 
@@ -253,7 +243,7 @@ func (f *FluxClient) TriggerReconcile(ctx context.Context, obj *unstructured.Uns
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	annotations["reconcile.fluxcd.io/requestedAt"] = metav1.Now().Format(time.RFC3339Nano)
+	annotations["reconcile.fluxcd.io/requestedAt"] = time.Now().Format(time.RFC3339)
 	obj.SetAnnotations(annotations)
 
 	if err := f.Update(ctx, obj); err != nil {
@@ -269,19 +259,18 @@ func (f *FluxClient) GetFluxStatus(ctx context.Context, namespace string) (map[s
 	// Check GitRepositories
 	gitRepos, err := f.ListGitRepositories(ctx, namespace)
 	if err != nil {
-		status["gitRepositories"] = "error"
+		status["gitrepositories"] = "error: " + err.Error()
 	} else {
-		status["gitRepositories"] = fmt.Sprintf("%d found", len(gitRepos))
+		status["gitrepositories"] = fmt.Sprintf("%d found", len(gitRepos))
 	}
 
 	// Check Kustomizations
 	kustomizations, err := f.ListKustomizations(ctx, namespace)
 	if err != nil {
-		status["kustomizations"] = "error"
+		status["kustomizations"] = "error: " + err.Error()
 	} else {
 		status["kustomizations"] = fmt.Sprintf("%d found", len(kustomizations))
 	}
 
-	status["ready"] = "true"
 	return status, nil
 }

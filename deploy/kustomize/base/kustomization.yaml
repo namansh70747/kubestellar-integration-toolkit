@@ -9,7 +9,7 @@ resources:
   - rbac.yaml
   - deployment.yaml
   - service.yaml
-  - crds.yaml # ✅ Use local CRDs file instead of relative paths
+  - crds.yaml # ✅ Uses consolidated CRDs file
 
 images:
   - name: controller

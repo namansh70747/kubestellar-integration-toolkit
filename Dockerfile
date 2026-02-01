@@ -1,15 +1,28 @@
-FROM golang:1.21 AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o ksit ./cmd/ksit/main.go
+# Build stage
+FROM golang:1.21-alpine AS builder
 
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates && \
-    addgroup -g 65532 -S nonroot && \
-    adduser -u 65532 -S nonroot -G nonroot
+WORKDIR /workspace
+
+# Copy go mod files
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+# Cache deps before building
+RUN go mod download
+
+# Copy source code
+COPY cmd/ cmd/
+COPY api/ api/
+COPY pkg/ pkg/
+COPY internal/ internal/
+
+# Build the manager binary
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o ksit ./cmd/ksit/main.go
+
+# Runtime stage - use distroless for security
+FROM gcr.io/distroless/static:nonroot
 WORKDIR /
-COPY --from=builder /app/ksit /ksit
+COPY --from=builder /workspace/ksit .
 USER 65532:65532
+
 ENTRYPOINT ["/ksit"]

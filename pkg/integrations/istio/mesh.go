@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -103,6 +104,21 @@ func (sm *ServiceMesh) ConfigureMesh(ctx context.Context, config *MeshConfig) er
 }
 
 func (sm *ServiceMesh) enableAutoMTLS(ctx context.Context, namespace string) error {
+	// Check if PeerAuthentication already exists
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(peerAuthenticationGVK)
+
+	err := sm.Get(ctx, client.ObjectKey{Name: "default", Namespace: namespace}, existing)
+	if err == nil {
+		// Already exists, update if needed
+		return nil
+	}
+
+	if !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to check existing PeerAuthentication: %w", err)
+	}
+
+	// Create new PeerAuthentication
 	peerAuth := &PeerAuthentication{
 		Name:      "default",
 		Namespace: namespace,
@@ -176,78 +192,6 @@ func (sm *ServiceMesh) CreateAuthorizationPolicy(ctx context.Context, ap *Author
 		spec["selector"] = map[string]interface{}{
 			"matchLabels": ap.Selector,
 		}
-	}
-
-	if len(ap.Rules) > 0 {
-		rules := make([]interface{}, 0, len(ap.Rules))
-		for _, rule := range ap.Rules {
-			ruleMap := make(map[string]interface{})
-
-			// Add From clause
-			if len(rule.From) > 0 {
-				fromList := make([]interface{}, 0, len(rule.From))
-				for _, from := range rule.From {
-					fromMap := make(map[string]interface{})
-					if from.Source != nil {
-						source := make(map[string]interface{})
-						if len(from.Source.Principals) > 0 {
-							source["principals"] = from.Source.Principals
-						}
-						if len(from.Source.Namespaces) > 0 {
-							source["namespaces"] = from.Source.Namespaces
-						}
-						if len(from.Source.IPBlocks) > 0 {
-							source["ipBlocks"] = from.Source.IPBlocks
-						}
-						fromMap["source"] = source
-					}
-					fromList = append(fromList, fromMap)
-				}
-				ruleMap["from"] = fromList
-			}
-
-			// Add To clause
-			if len(rule.To) > 0 {
-				toList := make([]interface{}, 0, len(rule.To))
-				for _, to := range rule.To {
-					toMap := make(map[string]interface{})
-					if to.Operation != nil {
-						operation := make(map[string]interface{})
-						if len(to.Operation.Hosts) > 0 {
-							operation["hosts"] = to.Operation.Hosts
-						}
-						if len(to.Operation.Ports) > 0 {
-							operation["ports"] = to.Operation.Ports
-						}
-						if len(to.Operation.Methods) > 0 {
-							operation["methods"] = to.Operation.Methods
-						}
-						if len(to.Operation.Paths) > 0 {
-							operation["paths"] = to.Operation.Paths
-						}
-						toMap["operation"] = operation
-					}
-					toList = append(toList, toMap)
-				}
-				ruleMap["to"] = toList
-			}
-
-			// Add When clause
-			if len(rule.When) > 0 {
-				whenList := make([]interface{}, 0, len(rule.When))
-				for _, when := range rule.When {
-					whenMap := map[string]interface{}{
-						"key":    when.Key,
-						"values": when.Values,
-					}
-					whenList = append(whenList, whenMap)
-				}
-				ruleMap["when"] = whenList
-			}
-
-			rules = append(rules, ruleMap)
-		}
-		spec["rules"] = rules
 	}
 
 	if err := unstructured.SetNestedMap(authPolicy.Object, spec, "spec"); err != nil {
@@ -412,7 +356,6 @@ func (sm *ServiceMesh) ConfigureMultiClusterMesh(ctx context.Context, config *Me
 	// Enable mTLS for the namespace
 	if config.EnableAutoMTLS {
 		if err := sm.EnableMTLSForNamespace(ctx, config.Namespace, "STRICT"); err != nil {
-			// Ignore if already exists
 			if !isAlreadyExistsError(err) {
 				return fmt.Errorf("failed to enable mTLS: %w", err)
 			}
@@ -424,6 +367,5 @@ func (sm *ServiceMesh) ConfigureMultiClusterMesh(ctx context.Context, config *Me
 
 // isAlreadyExistsError checks if error is an "already exists" error
 func isAlreadyExistsError(err error) bool {
-	return err != nil && (err.Error() == "already exists" ||
-		(len(err.Error()) > 14 && err.Error()[len(err.Error())-14:] == "already exists"))
+	return errors.IsAlreadyExists(err)
 }

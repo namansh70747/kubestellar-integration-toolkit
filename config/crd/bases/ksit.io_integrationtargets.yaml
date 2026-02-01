@@ -11,10 +11,25 @@ spec:
     kind: IntegrationTarget
     listKind: IntegrationTargetList
     plural: integrationtargets
+    shortNames:
+    - it
     singular: integrationtarget
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clusterName
+      name: Cluster
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.message
+      name: Message
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: IntegrationTarget is the Schema for the integrationtargets API
@@ -42,16 +57,13 @@ spec:
               clusterName:
                 description: ClusterName is the name of the target cluster
                 type: string
-              kubeConfig:
-                description: KubeConfig is the kubeconfig for connecting to the cluster
-                type: string
               labels:
                 additionalProperties:
                   type: string
-                description: Labels are cluster labels for selection
+                description: Labels to apply to resources
                 type: object
               namespace:
-                description: Namespace is the target namespace
+                description: Namespace is the target namespace (optional)
                 type: string
             required:
             - clusterName
@@ -61,6 +73,7 @@ spec:
             properties:
               conditions:
                 description: Conditions represent the latest available observations
+                  of the target's state
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,9 +129,23 @@ spec:
                   - type
                   type: object
                 type: array
-              message:
-                description: Message provides additional status information
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastSyncTime:
+                description: LastSyncTime is the timestamp of the last successful
+                  sync
+                format: date-time
                 type: string
+              message:
+                description: Message provides additional information about the target
+                  status
+                type: string
+              observedGeneration:
+                description: ObservedGeneration reflects the generation of the most
+                  recently observed Integration
+                format: int64
+                type: integer
               ready:
                 description: Ready indicates if the target is ready
                 type: boolean

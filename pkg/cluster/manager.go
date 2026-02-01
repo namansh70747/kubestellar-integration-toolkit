@@ -144,7 +144,7 @@ func (cm *ClusterManager) GetClusterConfig(name, namespace string) (*rest.Config
 	key := fmt.Sprintf("%s/%s", namespace, name)
 	config, exists := cm.configs[key]
 	if !exists {
-		return nil, fmt.Errorf("cluster config %s/%s not found", namespace, name)
+		return nil, fmt.Errorf("config for cluster %s/%s not found", namespace, name)
 	}
 
 	return config, nil
@@ -159,7 +159,7 @@ func (cm *ClusterManager) SyncCluster(ctx context.Context, name, namespace strin
 	_, err = cluster.Client.Discovery().ServerVersion()
 	if err != nil {
 		cm.UpdateClusterStatus(name, namespace, string(ClusterStatusError))
-		return fmt.Errorf("failed to connect to cluster: %w", err)
+		return fmt.Errorf("failed to sync cluster: %w", err)
 	}
 
 	cm.UpdateClusterStatus(name, namespace, string(ClusterStatusActive))
