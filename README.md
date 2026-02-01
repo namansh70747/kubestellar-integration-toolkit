@@ -7,6 +7,7 @@ KSIT monitors DevOps tools running across multiple Kubernetes clusters from a si
 Imagine you manage 10 Kubernetes clusters. Each cluster has ArgoCD for deployments, Prometheus for monitoring, and maybe Istio for service mesh. How do you know if they're all working?
 
 Typically, you'd:
+
 - Switch kubectl context 10 times
 - Check pods in each namespace on each cluster
 - Look for errors in logs
@@ -96,6 +97,7 @@ kubectl get integrations -n ksit-system
 ```
 
 Output:
+
 ```
 NAME              TYPE     PHASE     AGE
 argocd-all-prod   argocd   Running   5m
@@ -160,6 +162,7 @@ kubectl get integrationtargets -n ksit-system
 ```
 
 The demo creates:
+
 - Control cluster running KSIT
 - Two workload clusters with ArgoCD, Flux, Prometheus, and Istio
 - Sample Integration resources monitoring everything
@@ -346,14 +349,17 @@ KSIT marks it as Failed and retries on the next reconciliation (30 seconds later
 ## Troubleshooting
 
 **Integration shows Failed but tools are running**:
+
 - Check if tools are in expected namespaces
 - Run `kubectl describe integration <name> -n ksit-system` for details
 
 **IntegrationTarget shows not ready**:
+
 - Verify kubeconfig secret exists: `kubectl get secret <cluster>-kubeconfig -n ksit-system`
 - Check if cluster is reachable from the control plane
 
 **Controller pod crashlooping**:
+
 - Ensure CRDs are installed: `kubectl get crd | grep ksit`
 - Check logs: `kubectl logs -n ksit-system -l control-plane=controller-manager`
 

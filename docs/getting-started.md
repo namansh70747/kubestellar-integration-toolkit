@@ -164,6 +164,7 @@ Let me explain what's running now:
 **Your Workload Clusters**: These are the clusters you're monitoring. KSIT connects to them using the kubeconfig secrets you created. It checks if ArgoCD, Flux, Prometheus, or Istio are healthy.
 
 **Health Checks**: Every 30 seconds, the controller connects to each target cluster and checks:
+
 - Are the expected deployments running?
 - Do they have healthy replicas?
 - Are the services responding?
@@ -183,6 +184,7 @@ kubectl logs -f -n ksit-system -l control-plane=controller-manager
 ```
 
 You'll see messages like:
+
 ```
 INFO  controllers.Integration  checking ArgoCD health on cluster  {"cluster": "prod-cluster"}
 INFO  controllers.Integration  ArgoCD integration is healthy
@@ -247,6 +249,7 @@ Now one Integration resource monitors ArgoCD across both clusters.
 **Q: How do I know if my cluster connected successfully?**
 
 Check the IntegrationTarget status:
+
 ```bash
 kubectl get integrationtarget <cluster-name> -n ksit-system
 ```
@@ -256,6 +259,7 @@ If it shows `READY: true`, you're good. If not, check the Message field for deta
 **Q: Why does my integration show Failed when the tools are running?**
 
 KSIT expects tools in specific namespaces:
+
 - ArgoCD: `argocd`
 - Flux: `flux-system`
 - Prometheus: `monitoring`
