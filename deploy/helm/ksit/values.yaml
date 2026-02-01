@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: kubestellar/integration-toolkit
-  tag: "0.1.0" # ✅ Changed from 'latest' to match Chart version
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -30,7 +30,7 @@ securityContext:
 service:
   type: ClusterIP
   port: 8080
-  metricsPort: 8080 # ✅ Changed from 8081 to match main.go
+  metricsPort: 8080 # ✅ Matches main.go default
 
 resources:
   limits:
@@ -73,5 +73,7 @@ integrations:
   istio:
     enabled: false
     namespace: "istio-system"
+  kubestellar:
+    enabled: false
 
 kubeconfigSecret: ksit-kubeconfig

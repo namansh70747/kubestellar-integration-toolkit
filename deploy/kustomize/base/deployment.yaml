@@ -24,15 +24,16 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - command:
+        - name: manager
+          # ✅ FIXED: Changed command to /ksit
+          command:
             - /ksit
           args:
             - --leader-elect
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081
-          image: controller:latest
-          imagePullPolicy: IfNotPresent # ✅ Added missing field
-          name: manager
+          image: kubestellar/integration-toolkit:0.1.0
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -54,7 +55,7 @@ spec:
             - containerPort: 8080
               name: metrics
               protocol: TCP
-            - containerPort: 8081 # ✅ Added health probe port
+            - containerPort: 8081
               name: health
               protocol: TCP
           resources:
@@ -64,7 +65,7 @@ spec:
             requests:
               cpu: 10m
               memory: 64Mi
-          env: # ✅ Added environment variables
+          env:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

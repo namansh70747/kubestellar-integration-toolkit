@@ -54,6 +54,28 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	// Load config
+	var cfg *config.Config
+	if configFile != "" {
+		var err error
+		cfg, err = config.LoadConfig(configFile)
+		if err != nil {
+			setupLog.Error(err, "failed to load config file")
+			cfg = config.NewDefaultConfig()
+		}
+	} else {
+		cfg = config.NewDefaultConfig()
+	}
+
+	// Use config values
+	if cfg.MetricsAddr != "" {
+		metricsAddr = cfg.MetricsAddr
+	}
+	if cfg.ProbeAddr != "" {
+		probeAddr = cfg.ProbeAddr
+	}
+	enableLeaderElection = cfg.LeaderElection
+
 	webhookServerOptions := webhook.Options{
 		Port:    webhookPort,
 		CertDir: certDir,
@@ -74,26 +96,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	var cfg *config.Config
-	if configFile != "" {
-		var err error
-		cfg, err = config.LoadConfig(configFile)
-		if err != nil {
-			setupLog.Error(err, "failed to load config file")
-			cfg = config.NewDefaultConfig()
-		}
-	} else {
-		cfg = config.NewDefaultConfig()
-	}
+	// ✅ OPTION A: Use Manager Wrapper (Optional)
+	// Uncomment these lines to use the wrapper:
+	/*
+	   ctrlManager := controller.NewManager(mgr, ctrl.Log)
+	   // Manager wrapper will setup controllers internally
+	   // No need to call SetupWithManager directly
+	*/
 
-	if cfg.MetricsAddr != "" {
-		metricsAddr = cfg.MetricsAddr
-	}
-	if cfg.ProbeAddr != "" {
-		probeAddr = cfg.ProbeAddr
-	}
-	enableLeaderElection = cfg.LeaderElection
-
+	// ✅ OPTION B: Direct Setup (Current approach - simpler)
 	if err = (&controller.IntegrationReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -112,7 +123,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ✅ FIX: Setup webhooks if enabled
+	// Setup webhooks if enabled
 	if enableWebhook {
 		setupLog.Info("setting up webhooks")
 		if err := internalwebhook.SetupWebhookServer(mgr); err != nil {

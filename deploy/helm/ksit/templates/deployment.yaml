@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "ksit.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ksit.labels" . | nindent 4 }}
 spec:
@@ -26,24 +27,33 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+        - name: manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # ✅ FIXED: Changed command to /ksit
+          command:
+            - /ksit
           args:
+            - --leader-elect={{ .Values.leaderElection.enabled }}
             - --metrics-bind-address=:{{ .Values.service.metricsPort }}
             - --health-probe-bind-address=:8081
-            {{- if .Values.leaderElection.enabled }}
-            - --leader-elect=true
-            {{- end }}
+            - --log-level={{ .Values.logLevel }}
+          {{- if .Values.webhook.enabled }}
+            - --enable-webhook=true
+            - --webhook-port={{ .Values.webhook.port }}
+          {{- end }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
             - name: metrics
               containerPort: {{ .Values.service.metricsPort }}
               protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          {{- if .Values.webhook.enabled }}
+            - name: webhook
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -58,13 +68,8 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          env:
-            - name: LOG_LEVEL
-              value: {{ .Values.logLevel }}
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -29,9 +29,10 @@ const (
 
 type IntegrationReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	Log            logr.Logger
-	ClusterManager *cluster.ClusterManager // ✅ ADD THIS
+	Scheme           *runtime.Scheme
+	Log              logr.Logger
+	ClusterManager   *cluster.ClusterManager
+	ClusterInventory *cluster.ClusterInventory
 }
 
 func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -48,11 +49,31 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// ✅ USE CLUSTER INVENTORY: Track clusters
+	for _, clusterName := range integration.Spec.TargetClusters {
+		clusterInfo, err := r.ClusterInventory.GetCluster(clusterName)
+		if err != nil {
+			// Cluster not in inventory, add it
+			r.ClusterInventory.AddCluster(clusterName, integration.Namespace, string(cluster.ClusterStatusActive))
+			log.Info("added cluster to inventory", "cluster", clusterName)
+		} else {
+			// Update last seen time
+			clusterInfo.LastSeen = time.Now()
+			r.ClusterInventory.UpdateCluster(clusterInfo)
+		}
+	}
+
 	// Handle deletion
 	if !integration.ObjectMeta.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(integration, integrationFinalizer) {
 			if err := r.cleanupIntegration(ctx, integration); err != nil {
 				return ctrl.Result{}, err
+			}
+
+			// ✅ REMOVE CLUSTERS FROM INVENTORY
+			for _, clusterName := range integration.Spec.TargetClusters {
+				r.ClusterInventory.RemoveCluster(clusterName)
+				log.Info("removed cluster from inventory", "cluster", clusterName)
 			}
 
 			controllerutil.RemoveFinalizer(integration, integrationFinalizer)
@@ -75,14 +96,20 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !integration.Spec.Enabled {
 		integration.Status.Phase = ksitv1alpha1.PhaseFailed
 		integration.Status.Message = "Integration is disabled"
-		r.Status().Update(ctx, integration)
+		if err := r.Status().Update(ctx, integration); err != nil {
+			r.Log.Error(err, "failed to update status for disabled integration")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
 	}
 
 	// Update status to Initializing
 	if integration.Status.Phase == "" {
 		integration.Status.Phase = ksitv1alpha1.PhaseInitializing
-		r.Status().Update(ctx, integration)
+		if err := r.Status().Update(ctx, integration); err != nil {
+			r.Log.Error(err, "failed to update status to Initializing")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Reconcile based on type
@@ -114,7 +141,15 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		integration.Status.Message = reconcileErr.Error()
 		prometheus.RecordReconcile(integration.Name, integration.Spec.Type, "failed")
 
-		// Update Ready condition
+		// ✅ UPDATE INVENTORY: Mark clusters as error
+		for _, clusterName := range integration.Spec.TargetClusters {
+			clusterInfo, _ := r.ClusterInventory.GetCluster(clusterName)
+			if clusterInfo != nil {
+				clusterInfo.Status = string(cluster.ClusterStatusError)
+				r.ClusterInventory.UpdateCluster(clusterInfo)
+			}
+		}
+
 		meta.SetStatusCondition(&integration.Status.Conditions, metav1.Condition{
 			Type:    ksitv1alpha1.ConditionTypeReady,
 			Status:  metav1.ConditionFalse,
@@ -126,21 +161,35 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		integration.Status.Message = "Integration is running"
 		prometheus.RecordReconcile(integration.Name, integration.Spec.Type, "success")
 
-		// Update Ready condition
+		// ✅ UPDATE INVENTORY: Mark clusters as active
+		for _, clusterName := range integration.Spec.TargetClusters {
+			clusterInfo, _ := r.ClusterInventory.GetCluster(clusterName)
+			if clusterInfo != nil {
+				clusterInfo.Status = string(cluster.ClusterStatusActive)
+				r.ClusterInventory.UpdateCluster(clusterInfo)
+			}
+			prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, clusterName, true)
+		}
+
 		meta.SetStatusCondition(&integration.Status.Conditions, metav1.Condition{
 			Type:    ksitv1alpha1.ConditionTypeReady,
 			Status:  metav1.ConditionTrue,
 			Reason:  "ReconcileSucceeded",
 			Message: "Integration is healthy",
 		})
-
-		// Update cluster statuses
-		for _, clusterName := range integration.Spec.TargetClusters {
-			prometheus.SetIntegrationStatus(integration.Name, integration.Spec.Type, clusterName, true)
-		}
 	}
 
-	r.Status().Update(ctx, integration)
+	if err := r.Status().Update(ctx, integration); err != nil {
+		r.Log.Error(err, "failed to update integration status")
+		return ctrl.Result{}, err
+	}
+
+	// ✅ CLEANUP STALE CLUSTERS FROM INVENTORY (every hour)
+	go func() {
+		time.Sleep(1 * time.Hour)
+		r.ClusterInventory.CleanupStale(24 * time.Hour)
+		log.Info("cleaned up stale clusters from inventory")
+	}()
 
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
@@ -299,8 +348,9 @@ func (r *IntegrationReconciler) cleanupIntegration(ctx context.Context, integrat
 }
 
 func (r *IntegrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// ✅ INITIALIZE ClusterManager
+	// ✅ INITIALIZE ClusterManager and ClusterInventory
 	r.ClusterManager = cluster.NewClusterManager(r.Client)
+	r.ClusterInventory = cluster.NewClusterInventory()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ksitv1alpha1.Integration{}).

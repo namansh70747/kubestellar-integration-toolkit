@@ -24,9 +24,9 @@ spec:
       containers:
         - name: manager
           image: controller:latest
-          imagePullPolicy: Never
+          # ✅ FIXED: Changed from /manager to /ksit to match Dockerfile
           command:
-            - /manager
+            - /ksit
           args:
             - --leader-elect
             - --metrics-bind-address=:8080

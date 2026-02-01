@@ -79,17 +79,17 @@ test-coverage: test ## Run tests with coverage report
 
 .PHONY: test-integration
 test-integration: envtest ## Run integration tests
-	@echo "$(GREEN)Setting up envtest binaries...$(NC)"
-	@mkdir -p bin/k8s
-	@KUBEBUILDER_ASSETS=$$(cd $$(setup-envtest use 1.29.x --bin-dir ./bin/k8s -p path) && pwd) && \
-		echo "Using envtest binaries at: $$KUBEBUILDER_ASSETS" && \
-		export KUBEBUILDER_ASSETS && \
-		go test ./test/integration/... -v -ginkgo.v
+<TAB>@echo "$(GREEN)Setting up envtest binaries...$(NC)"
+<TAB>@mkdir -p bin/k8s
+<TAB>@KUBEBUILDER_ASSETS=$$(setup-envtest use 1.29.x --bin-dir ./bin/k8s -p path) && \
+<TAB><TAB>echo "Using envtest binaries at: $$KUBEBUILDER_ASSETS" && \
+<TAB><TAB>export KUBEBUILDER_ASSETS && \
+<TAB><TAB>go test ./test/integration/... -v -ginkgo.v
 
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests (requires real cluster)
-	@echo "$(GREEN)Running e2e tests...$(NC)"
-	@go test ./test/e2e/... -v -ginkgo.v
+<TAB>@echo "$(GREEN)Running e2e tests...$(NC)"
+<TAB>@go test ./test/e2e/... -v -ginkgo.v
 
 .PHONY: test-all
 test-all: test test-integration test-e2e ## Run all tests
