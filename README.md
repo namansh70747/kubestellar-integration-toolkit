@@ -1,63 +1,35 @@
 # KubeStellar Integration Toolkit (KSIT)
 
-**Production-Ready Kubernetes DevOps Tool Management Across Multiple Clusters**
+A Kubernetes controller that manages DevOps tools across multiple clusters from one place.
 
-KSIT automatically monitors and installs DevOps tools (ArgoCD, Prometheus, Istio, Flux) across multiple Kubernetes clusters from a single control plane. Instead of manually managing each cluster, KSIT handles installation, health monitoring, and status reporting through standard Kubernetes resources.
+KSIT monitors and installs tools like ArgoCD, Prometheus, Istio, and Flux across your Kubernetes clusters. Instead of manually installing and checking these tools on each cluster, you define what you want in a YAML file and KSIT handles the rest.
 
-## Production Status
+## What Works
 
-| Integration | Auto-Install | Monitoring | Production Ready |
-|-------------|-------------|------------|------------------|
-| **ArgoCD** | ✅ Works | ✅ Works | ✅ **Yes** |
-| **Prometheus** | ✅ Works | ✅ Works | ✅ **Yes** |
-| **Istio** | ⚠️ Partial | ✅ Works | ⚠️ Requires registry access* |
-| **Flux** | ❌ In Progress | ✅ Works | ❌ Under development |
+| Integration | Auto-Install | Health Checks | Status |
+|-------------|-------------|---------------|--------|
+| ArgoCD | Yes | Yes | Works well |
+| Prometheus | Yes | Yes | Works well |
+| Istio | Partial* | Yes | Needs registry access |
+| Flux | Not yet | Yes | In progress |
 
-**Current Release: v1.0.0** - Production certified for ArgoCD and Prometheus
+*Istio works fine in GKE/EKS/AKS. Kind requires pre-loading images since it doesn't have internet access.
 
-\* *Istio requires internet/container registry access. Works in all cloud environments (GKE, EKS, AKS). Local Kind testing requires manual image pre-loading.*
+## Why This Exists
 
-## Why Use KSIT?
+If you manage multiple Kubernetes clusters, you know the pain:
 
-### The Problem
+- Installing the same tools (ArgoCD, Prometheus, etc.) on every cluster manually
+- Not knowing which cluster has a broken deployment until something fails
+- Constantly switching contexts to check if everything is still running
 
-Managing DevOps tools across multiple Kubernetes clusters is operationally expensive:
-
-- **Time-consuming**: Manually installing ArgoCD, Prometheus, Istio on 10 clusters = 10× the work
-- **Error-prone**: Different versions, configurations across clusters lead to drift
-- **No visibility**: Which cluster has Prometheus down? You won't know until something breaks
-- **Context switching**: `kubectl config use-context` repeated 50 times per day
-
-### The KSIT Solution
-
-**Single Control Point**: Manage all clusters from one place
+KSIT fixes this. You declare what tools should run where, and it handles installation and monitoring.
 
 ```bash
-kubectl get integrations  # See health across all clusters instantly
+kubectl get integrations  # See status across all clusters
 ```
 
-**Automated Installation**: Declare once, install everywhere
-
-```yaml
-spec:
-  type: argocd
-  targetClusters: [prod-1, prod-2, prod-3]  # Installs on all 3
-  autoInstall:
-    enabled: true
-```
-
-**Continuous Health Monitoring**: Know immediately when something breaks
-
-- Health checks every 30 seconds
-- Status updates via Kubernetes conditions
-- Integration with alerting systems (Prometheus, PagerDuty)
-
-**Production-Grade Reliability**:
-
-- ✅ Battle-tested in multi-cluster environments
-- ✅ Comprehensive error handling and retries
-- ✅ Non-invasive: read-only access to workload clusters
-- ✅ Helm-based deployment for enterprise compatibility
+The controller checks health every 30 seconds and updates the Integration status, so you always know what's running and what's broken.
 
 ## Key Features
 
@@ -73,7 +45,7 @@ spec:
 
 **🔐 Secure**: Non-root container, read-only filesystem, minimal RBAC permissions.
 
-## Quick Start (5 Minutes)
+## Quick Start
 
 ### Prerequisites
 
@@ -85,21 +57,18 @@ spec:
 ### Installation
 
 **Step 1: Build the Controller Image**
+Features
 
-```bash
-git clone https://github.com/namansh70747/kubestellar-integration-toolkit.git
-cd kubestellar-integration-toolkit
-docker build -t ksit-controller:v1.0.0 .
-```
-
-**Step 2: Load Image (for Kind/Minikube)**
-
-```bash
-# Kind
-kind load docker-image ksit-controller:v1.0.0 --name <your-cluster-name>
+- Auto-installs tools via Helm charts
+- Monitors health and reports status every 30 seconds
+- One Integration can target multiple clusters
+- Standard Kubernetes CRDs (no weird custom APIs)
+- Runs as non-root with minimal permissions
 
 # Minikube
+
 minikube image load ksit-controller:v1.0.0
+
 ```
 
 **Step 3: Install via Helm**
@@ -359,7 +328,7 @@ spec:
 
 ```yaml
 apiVersion: ksit.io/v1alpha1
-kind: Integration
+This installs ArgoCD on all 4 clusters and monitors their health from one place
 metadata:
   name: prometheus-stack
   namespace: ksit-system
@@ -383,7 +352,7 @@ spec:
     namespace: monitoring
 ```
 
-**Result**: Full Prometheus stack (Prometheus, Grafana, Alertmanager) on all clusters.
+This deploys the full Prometheus stack on all three clusters.
 
 ### Example 3: Istio Service Mesh ⚠️ CLOUD READY
 
@@ -412,8 +381,7 @@ spec:
     namespace: istio-system
 ```
 
-**Status**: Works in all cloud environments (GKE, EKS, AKS). Requires container registry access.
-**Local Testing Note**: Kind requires manual image pre-loading. See troubleshooting section.
+Works fine in cloud environments. Kind needs manual image loading since it can't pull from the internet.
 
 ### Example 4: Different Tools Per Environment
 
@@ -455,14 +423,13 @@ spec:
 
 ### ✅ ArgoCD - **PRODUCTION READY v1.0.0**
 
-**Status**: Fully validated, production-certified
+ArgoCD
 
-- **Auto-Install**: ✅ Working (Helm-based)
-- **Health Monitoring**: ✅ Comprehensive (server, repo-server, application-controller)
-- **Multi-Cluster**: ✅ Tested across multiple clusters
-- **Validation**: ✅ 45+ minutes continuous operation, zero errors
-- **Pods Monitored**: 7 per cluster (server, repo-server, controller, redis, dex, notifications, applicationset)
+Works well. Auto-install and monitoring both functional.
 
+- Installs via Helm
+- Monitors 7 pods per cluster (server, repo-server, controller, redis, dex, notifications, applicationset)
+- Tested across multiple clusters
 **Helm Configuration**:
 
 ```yaml
@@ -476,17 +443,13 @@ helmConfig:
 
 ---
 
-### ✅ Prometheus - **PRODUCTION READY v1.0.0**
+### Prometheus
 
-**Status**: Fully validated, production-certified
+Works well. Deploys the full kube-prometheus-stack.
 
-- **Auto-Install**: ✅ Working (Helm-based)
-- **Health Monitoring**: ✅ Complete (operator, prometheus, alertmanager, grafana)
-- **Multi-Cluster**: ✅ Validated on multiple targets
-- **Validation**: ✅ Full stack deployment successful
-- **Pods Monitored**: 6 per cluster (prometheus, alertmanager, grafana, operator, kube-state-metrics, node-exporter)
-
-**Helm Configuration**:
+- Installs via Helm
+- Monitors 6 pods per cluster (prometheus, alertmanager, grafana, operator, kube-state-metrics, node-exporter)
+- Takes 3-5 minutes for StatefulSets to come up
 
 ```yaml
 helmConfig:
@@ -504,20 +467,14 @@ helmConfig:
 **Status**: Functional in cloud environments, Kind requires additional setup
 
 - **Auto-Install**: ⚠️ Works with registry access
-- **Health Monitoring**: ✅ Working (istiod deployment check)
-- **Multi-Cluster**: ✅ Supported
-- **Cloud Environments**: ✅ GKE, EKS, AKS - fully functional
-- **Local Kind**: ⚠️ Requires manual image pre-loading
-- **Pods Monitored**: istiod (control plane)
 
-**Helm Configuration**:
+### Istio
 
-```yaml
-helmConfig:
-  repository: https://istio-release.storage.googleapis.com/charts
-  chart: istiod
-  version: "1.20.2"
-```
+Mostly works, with caveats.
+
+- Auto-install works in cloud (GKE, EKS, AKS)
+- Local Kind needs image pre-loading
+- Monitors istiod control plane
 
 **Known Limitation**: Local Kind clusters don't have internet access to pull images from `docker.io/istio/*`. This is **testing-only limitation**. In production cloud environments with registry access, Istio works perfectly.
 
@@ -534,9 +491,9 @@ kind load docker-image docker.io/istio/proxyv2:1.28.3 --name <cluster-name>
 
 ---
 
-### ❌ Flux - **UNDER DEVELOPMENT**
+Kind doesn't have internet access, so you need to pre-load Istio images:
 
-**Status**: Monitoring works, auto-install requires additional engineering
+ng works, auto-install requires additional engineering
 
 - **Auto-Install**: ❌ CRD installation issue under investigation
 - **Health Monitoring**: ✅ Working (all 6 controllers)
@@ -544,63 +501,35 @@ kind load docker-image docker.io/istio/proxyv2:1.28.3 --name <cluster-name>
 - **Current Issue**: CustomResourceDefinitions not being applied correctly during manifest-based installation
 - **Pods Expected**: 6 controllers (source, kustomize, helm, notification, image-automation, image-reflector)
 
-**Manifest URL**:
+### Flux
 
-```yaml
-config:
-  manifestUrl: https://github.com/fluxcd/flux2/releases/download/v2.2.2/install.yaml
-```
+Still working on this one.
 
-**Status**: Active development. Fix in progress. Monitoring works for manually installed Flux instances.
-
-**Recommendation**: For production use, install Flux manually and use KSIT for monitoring only:
-
-```bash
+- Monitoring works fine (checks 6 controllers)
+- Auto-install has a CRD timing issue we're fixing
+- For now, install Flux manually and use KSIT just for monitoring
 flux install --namespace=flux-system
+
 # Then create KSIT Integration without autoInstall.enabled
+
 ```
 
 ## Roadmap
 
 ### v1.0.0 (Current - Production Ready)
 
-- ✅ ArgoCD auto-install and monitoring
-- ✅ Prometheus auto-install and monitoring
-- ✅ Istio monitoring (cloud-ready)
+If you need Flux now, install it manual
 - ✅ Flux monitoring (manual install required)
-- ✅ Multi-cluster support
-- ✅ Helm-based deployment
-- ✅ Comprehensive health checks
+- ✅What's Next
 
-### v1.1.0 (Planned - Q2 2026)
+Things we're planning to add:
 
-- 🔄 Flux auto-install (CRD installation fix)
-- 🔄 Custom namespace support
-- 🔄 Configurable health check logic
-- 🔄 Webhook validations
-- 🔄 Metrics exportation (Prometheus format)
-
-### v1.2.0 (Planned - Q3 2026)
-
-- 🔄 Additional integrations (Tekton, Vault, Cert-Manager)
-- 🔄 Advanced RBAC controls
-- 🔄 Multi-tenancy support
-- 🔄 Custom resource templating
-
-### v2.0.0 (Future)
-
-- 🔄 UI Dashboard
-- 🔄 Automated remediation
-- 🔄 Integration marketplace
-- 🔄 Policy-based deployments
-
-## Project Structure
-
-```
-kubestellar-integration-toolkit/
-├── api/v1alpha1/              # CRD API definitions
-│   ├── integration_types.go   # Integration CRD spec
-│   └── register.go            # Scheme registration
+- Fix Flux auto-install (CRD timing issue)
+- Custom namespace support
+- Configurable health check intervals
+- More integrations (Tekton, Vault, Cert-Manager)
+- Better webhook validation
+- Maybe a UI at some point  # Scheme registration
 ├── cmd/ksit/
 │   └── main.go                # Controller entry point
 ├── pkg/
@@ -782,7 +711,7 @@ kubectl get pods -n monitoring --context <cluster-context>
 # - prometheus-* (0/2 -> 2/2 ready)
 ```
 
-**Solution**: This is normal. StatefulSets require persistent volumes and take time to initialize.
+ This is normal. StatefulSets require persistent volumes and take time to initialize.
 
 ### Istio Issues
 
@@ -795,7 +724,9 @@ kubectl get pods -n istio-system --context <cluster-context>
 # istiod-xxx-xxx            0/1     ImagePullBackOff   0          2m
 ```
 
-**Solution (Kind only)**:
+Check if ArgoCD is in the righ
+Pre-load the images:
+Integration stuck on "Initializing"
 
 ```bash
 # Pre-load images
@@ -805,23 +736,22 @@ kind load docker-image docker.io/istio/pilot:1.28.3 --name <cluster-name>
 kind load docker-image docker.io/istio/proxyv2:1.28.3 --name <cluster-name>
 
 # Restart pods
-kubectl delete pod -n istio-system --all --context <cluster-context>
+This is normal. Prometheus uses StatefulSets which take a few minutes to start up
 ```
 
-**Note**: This is NOT an issue in cloud environments (GKE, EKS, AKS). Istio works perfectly in production.
+This only affects Kind. Cloud clusters work fine since they have internet access.
+ImagePullBackOff in Kind
 
 ### Flux Issues
 
-**Problem**: Flux controllers in CrashLoopBackOff
+Controllers in CrashLoopBackOff
 
 ```bash
 kubectl get pods -n flux-system --context <cluster-context>
 # All 6 controllers showing CrashLoopBackOff
 ```
 
-**Current Status**: Flux auto-install is under active development (CRD installation issue).
-
-**Workaround**: Install Flux manually, use KSIT for monitoring only:
+Auto-install doesn't work yet. Install Flux manually for now:
 
 ```bash
 # Install Flux CLI
@@ -849,15 +779,18 @@ EOF
 
 **Problem**: Target shows "NotReady" status
 
-```bash
+Target stuck on NotReady
 kubectl get integrationtargets -n ksit-system
+
 # NAME        READY   AGE
+
 # cluster-1   False   5m
+
 ```
 
 **Solution**: Check kubeconfig secret:
 
-```bash
+Check the
 # Verify secret exists
 kubectl get secret cluster-1-kubeconfig -n ksit-system
 
@@ -873,17 +806,20 @@ kubectl create secret generic cluster-1-kubeconfig \
 
 ### Controller Pod Issues
 
-**Problem**: Controller pod crashing or not starting
+**Problem**: ControCrashing
 
-```bash
+Controller won't start
 kubectl get pods -n ksit-system
+
 # NAME                                  READY   STATUS             RESTARTS   AGE
+
 # ksit-controller-manager-xxx-xxx       0/1     CrashLoopBackOff   5          5m
+
 ```
 
 **Solution**: Check logs and CRDs:
 
-```bash
+Check logs and verify
 # Check controller logs
 kubectl logs -n ksit-system -l control-plane=controller-manager
 
@@ -897,16 +833,17 @@ kubectl apply -f config/crd/bases/
 
 ### Network Connectivity Issues
 
-**Problem**: Controller can't reach workload clusters
+**Problem**:Issues
 
-```bash
 # Check controller logs
+
 kubectl logs -n ksit-system -l control-plane=controller-manager | grep "connection refused"
+
 ```
 
 **Solution**: Verify network connectivity and kubeconfig:
 
-```bash
+Test connectivity
 # Test connectivity from control cluster
 kubectl run debug --rm -it --image=nicolaka/netshoot -- /bin/bash
 # Inside pod: curl -k https://<workload-cluster-api-server>
@@ -917,15 +854,16 @@ kubectl get secret <cluster>-kubeconfig -n ksit-system -o jsonpath='{.data.kubec
 
 ### Performance Issues
 
-**Problem**: High CPU/memory usage
+**PrHigh Resource Usage
 
-```bash
+Controller using too much CPU/memory
 kubectl top pods -n ksit-system
+
 ```
 
 **Solution**: Adjust resource limits and health check intervals:
 
-```yaml
+Increase health check intervals or bump resource
 # In Integration spec
 config:
   healthCheckInterval: "60s"  # Increase from default 30s
@@ -941,25 +879,25 @@ helm upgrade ksit ./deploy/helm/ksit \
 
 ### Common Questions
 
-**Q: Integration shows "Failed" immediately after creation**
+**Integration shows "Failed" right after creation**
 
-- A: This is normal during initialization. Wait 1-2 minutes for first health check cycle.
+Wait a minute or two. The first health check takes time.
 
-**Q: Can I use KSIT with managed Kubernetes (GKE/EKS/AKS)?**
+**Does this work with GKE/EKS/AKS?**
 
-- A: Yes! KSIT works with any Kubernetes cluster. Just provide valid kubeconfig.
+Yes, any Kubernetes cluster works. Just need a valid kubeconfig.
 
-**Q: Do I need to install anything on workload clusters?**
+**Do I install anything on the workload clusters?**
 
-- A: No. KSIT only needs read access (via kubeconfig) to check pod status.
+No, KSIT only needs read access to check pod status.
 
-**Q: What's the minimum RBAC needed on workload clusters?**
+**What RBAC does it need on workload clusters?**
 
-- A: Read-only access to: deployments, statefulsets, pods, services, namespaces in the tool's namespace.
+Read-only access to deployments, statefulsets, pods in the tool's namespace.
 
-**Q: Can I monitor tools in custom namespaces?**
+**Can I use custom namespaces?**
 
-- A: Currently, KSIT expects standard namespaces (argocd, flux-system, monitoring, istio-system). Custom namespace support is planned for v1.1.0.
+Not yet. Right now it expects standard namespaces (argocd, flux-system, monitoring, istio-system).
 
 ## Development
 
@@ -1137,18 +1075,10 @@ make cleanup  # Deletes all Kind clusters and resources
 
 ## Contributing
 
-Contributions are welcome. Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-Make sure tests pass before submitting:
+Pull requests welcome. Fork it, make changes, add tests, submit PR.
 
 ```bash
-make test-all
+make test-all  # Make sure this passes
 ```
 
 ## License
@@ -1158,3 +1088,8 @@ Apache License 2.0. See LICENSE file for details.
 ## Questions or Issues?
 
 Open an issue on GitHub or reach out to the KubeStellar community.
+2.0
+
+## Questions?
+
+Open an issue on GitHub
