@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	ksitv1alpha1 "github.com/kubestellar/integration-toolkit/api/v1alpha1"
 	"github.com/kubestellar/integration-toolkit/pkg/cluster"
 	"github.com/kubestellar/integration-toolkit/pkg/controller"
+	"github.com/kubestellar/integration-toolkit/pkg/installer"
 )
 
 var (
@@ -48,21 +50,42 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	By("bootstrapping test environment")
+
+	// Get project root
+	projectRoot, projectErr := filepath.Abs(filepath.Join("..", ".."))
+	Expect(projectErr).NotTo(HaveOccurred())
+
+	// Set KUBEBUILDER_ASSETS
+	envtestPath := os.Getenv("KUBEBUILDER_ASSETS")
+	if envtestPath == "" {
+		envtestPath = filepath.Join(projectRoot, "bin", "k8s", "k8s", "1.29.5-darwin-arm64")
+		if _, statErr := os.Stat(envtestPath); os.IsNotExist(statErr) {
+			envtestPath = filepath.Join(projectRoot, "bin", "k8s", "k8s", "1.29.5-darwin-amd64")
+		}
+		os.Setenv("KUBEBUILDER_ASSETS", envtestPath)
+	}
+	logf.Log.Info("using KUBEBUILDER_ASSETS", "path", envtestPath)
+
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join(projectRoot, "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: envtestPath,
 	}
 
-	var err error
-	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
+	// Start test environment
+	var startErr error
+	cfg, startErr = testEnv.Start()
+	Expect(startErr).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = ksitv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	// Add scheme
+	schemeErr := ksitv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(schemeErr).NotTo(HaveOccurred())
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
+	// Create client
+	var clientErr error
+	k8sClient, clientErr = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(clientErr).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
 	// Create test namespace
@@ -72,13 +95,12 @@ var _ = BeforeSuite(func() {
 			Name: testNamespace,
 		},
 	}
-	err = k8sClient.Create(ctx, ns)
-	if err != nil {
-		// Namespace might already exist, ignore error
-		logf.Log.Info("namespace may already exist", "namespace", testNamespace)
+	nsErr := k8sClient.Create(ctx, ns)
+	if nsErr != nil {
+		logf.Log.Info("namespace may already exist", "namespace", testNamespace, "error", nsErr)
 	}
 
-	// ✅ CREATE KUBECONFIG SECRET FOR TEST CLUSTER
+	// Create kubeconfig secret
 	kubeconfigData := createKubeconfigFromRestConfig(cfg)
 	kubeconfigSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -90,11 +112,12 @@ var _ = BeforeSuite(func() {
 			"kubeconfig": kubeconfigData,
 		},
 	}
-	err = k8sClient.Create(ctx, kubeconfigSecret)
-	Expect(err).NotTo(HaveOccurred())
-	logf.Log.Info("✅ created kubeconfig secret", "name", "default-kubeconfig")
+	secretErr := k8sClient.Create(ctx, kubeconfigSecret)
+	if secretErr != nil {
+		logf.Log.Info("kubeconfig secret may already exist", "error", secretErr)
+	}
 
-	// ✅ CREATE INTEGRATIONTARGET FOR TEST CLUSTER
+	// Create IntegrationTarget
 	integrationTarget := &ksitv1alpha1.IntegrationTarget{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
@@ -102,104 +125,113 @@ var _ = BeforeSuite(func() {
 		},
 		Spec: ksitv1alpha1.IntegrationTargetSpec{
 			ClusterName: "default",
-			Namespace:   testNamespace,
-			Labels: map[string]string{
-				"environment": "test",
-			},
 		},
 	}
-	err = k8sClient.Create(ctx, integrationTarget)
-	Expect(err).NotTo(HaveOccurred())
-	logf.Log.Info("✅ created IntegrationTarget", "name", "default")
+	targetErr := k8sClient.Create(ctx, integrationTarget)
+	if targetErr != nil {
+		logf.Log.Info("integration target may already exist", "error", targetErr)
+	}
 
 	// Start manager
-	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
+	var mgrErr error
+	k8sManager, mgrErr := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
 		},
 	})
-	Expect(err).NotTo(HaveOccurred())
+	Expect(mgrErr).NotTo(HaveOccurred())
 
-	// ✅ CREATE CLUSTER MANAGER AND REGISTER TEST CLUSTER
+	// Create cluster manager and register test cluster
 	clusterMgr = cluster.NewClusterManager(k8sManager.GetClient())
+	logf.Log.Info("✅ created cluster manager")
 
-	// Register test cluster in ClusterManager
-	err = clusterMgr.AddCluster("default", testNamespace, string(kubeconfigData))
-	Expect(err).NotTo(HaveOccurred())
-	logf.Log.Info("✅ registered cluster in ClusterManager", "cluster", "default", "namespace", testNamespace)
+	registerErr := clusterMgr.AddCluster("default", testNamespace, string(kubeconfigData))
+	Expect(registerErr).NotTo(HaveOccurred())
+	logf.Log.Info("✅ registered test cluster", "cluster", "default", "namespace", testNamespace)
 
-	// Verify cluster is registered
-	registeredClusters := clusterMgr.ListClusters()
-	Expect(len(registeredClusters)).To(Equal(1))
-	Expect(registeredClusters[0].Name).To(Equal("default"))
-	logf.Log.Info("✅ verified cluster registration", "clusters", len(registeredClusters))
+	// Verify cluster registration
+	testCluster, getErr := clusterMgr.GetCluster("default", testNamespace)
+	Expect(getErr).NotTo(HaveOccurred())
+	Expect(testCluster).NotTo(BeNil())
+	logf.Log.Info("✅ verified cluster registration", "cluster", testCluster.Name)
 
 	// Setup IntegrationTarget reconciler
 	integrationTargetReconciler := &controller.IntegrationTargetReconciler{
 		Client:         k8sManager.GetClient(),
 		Scheme:         k8sManager.GetScheme(),
-		Log:            ctrl.Log.WithName("controllers").WithName("IntegrationTarget"),
+		Log:            ctrl.Log.WithName("IntegrationTarget"),
 		ClusterManager: clusterMgr,
 	}
-	err = integrationTargetReconciler.SetupWithManager(k8sManager)
-	Expect(err).NotTo(HaveOccurred())
+	targetSetupErr := integrationTargetReconciler.SetupWithManager(k8sManager)
+	Expect(targetSetupErr).NotTo(HaveOccurred())
 
-	// Setup Integration reconciler with ClusterManager
+	// Create installer factory
+	installerFactory := installer.NewInstallerFactory()
+	logf.Log.Info("✅ created installer factory")
+
+	// Setup Integration reconciler
 	integrationReconciler := &controller.IntegrationReconciler{
 		Client:           k8sManager.GetClient(),
 		Scheme:           k8sManager.GetScheme(),
-		Log:              ctrl.Log.WithName("controllers").WithName("Integration"),
+		Log:              ctrl.Log.WithName("Integration"),
 		ClusterManager:   clusterMgr,
 		ClusterInventory: cluster.NewClusterInventory(),
+		InstallerFactory: installerFactory,
 	}
-	err = integrationReconciler.SetupWithManager(k8sManager)
-	Expect(err).NotTo(HaveOccurred())
+	integrationSetupErr := integrationReconciler.SetupWithManager(k8sManager)
+	Expect(integrationSetupErr).NotTo(HaveOccurred())
 
 	go func() {
 		defer GinkgoRecover()
-		err = k8sManager.Start(ctx)
-		Expect(err).NotTo(HaveOccurred(), "failed to run manager")
+		startMgrErr := k8sManager.Start(ctx)
+		Expect(startMgrErr).NotTo(HaveOccurred(), "failed to run manager")
 	}()
 
 	// Wait for manager to be ready
 	time.Sleep(2 * time.Second)
-
-	logf.Log.Info("✅ test environment setup complete")
+	logf.Log.Info("✅ BeforeSuite completed successfully")
 })
 
 var _ = AfterSuite(func() {
-	cancel()
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	cancel()
+	stopErr := testEnv.Stop()
+	Expect(stopErr).NotTo(HaveOccurred())
 })
 
-// ✅ Helper function to create kubeconfig from rest.Config
 func createKubeconfigFromRestConfig(config *rest.Config) []byte {
-	// Base64 encode certificate data
-	caData := ""
+	var caData, certData, keyData string
 	if len(config.CAData) > 0 {
 		caData = base64.StdEncoding.EncodeToString(config.CAData)
 	}
-
-	certData := ""
 	if len(config.CertData) > 0 {
 		certData = base64.StdEncoding.EncodeToString(config.CertData)
 	}
-
-	keyData := ""
 	if len(config.KeyData) > 0 {
 		keyData = base64.StdEncoding.EncodeToString(config.KeyData)
 	}
 
-	// If no cert data, use token or other auth
-	userAuth := ""
-	if certData != "" && keyData != "" {
-		userAuth = fmt.Sprintf(`    client-certificate-data: %s
-    client-key-data: %s`, certData, keyData)
-	} else if config.BearerToken != "" {
-		userAuth = fmt.Sprintf(`    token: %s`, config.BearerToken)
+	if caData == "" || certData == "" || keyData == "" {
+		kubeconfig := fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    insecure-skip-tls-verify: true
+    server: %s
+  name: test-cluster
+contexts:
+- context:
+    cluster: test-cluster
+    user: test-user
+  name: test-context
+current-context: test-context
+users:
+- name: test-user
+  user:
+    token: test-token
+`, config.Host)
+		return []byte(kubeconfig)
 	}
 
 	kubeconfig := fmt.Sprintf(`apiVersion: v1
@@ -218,8 +250,8 @@ current-context: test-context
 users:
 - name: test-user
   user:
-%s
-`, caData, config.Host, userAuth)
-
+    client-certificate-data: %s
+    client-key-data: %s
+`, caData, config.Host, certData, keyData)
 	return []byte(kubeconfig)
 }

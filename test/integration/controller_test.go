@@ -2,10 +2,13 @@ package integration
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -126,6 +129,40 @@ var _ = Describe("Integration Controller Tests", func() {
 	Context("When reconciling an IntegrationTarget", func() {
 		It("Should create IntegrationTarget successfully", func() {
 			ctx := context.Background()
+
+			// Create the kubeconfig secret that the IntegrationTarget expects
+			kubeconfigSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-kubeconfig",
+					Namespace: IntegrationNamespace,
+				},
+				Data: map[string][]byte{
+					"kubeconfig": []byte(fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: %s
+    certificate-authority-data: %s
+  name: test-cluster
+contexts:
+- context:
+    cluster: test-cluster
+    user: test-user
+  name: test-cluster
+current-context: test-cluster
+users:
+- name: test-user
+  user:
+    client-certificate-data: %s
+    client-key-data: %s
+`,
+						cfg.Host,
+						base64.StdEncoding.EncodeToString(cfg.CAData),
+						base64.StdEncoding.EncodeToString(cfg.CertData),
+						base64.StdEncoding.EncodeToString(cfg.KeyData))),
+				},
+			}
+			Expect(k8sClient.Create(ctx, kubeconfigSecret)).Should(Succeed())
 
 			target := &ksitv1alpha1.IntegrationTarget{
 				TypeMeta: metav1.TypeMeta{

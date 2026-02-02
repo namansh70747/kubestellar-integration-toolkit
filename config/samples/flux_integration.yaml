@@ -1,19 +1,23 @@
 apiVersion: ksit.io/v1alpha1
 kind: Integration
 metadata:
-  name: flux-integration
-  namespace: flux-system
+  name: flux-autoinstall
+  namespace: default
   labels:
-    app.kubernetes.io/name: flux-integration
+    app.kubernetes.io/name: flux-autoinstall
     app.kubernetes.io/component: integration
 spec:
   type: flux
   enabled: true
   targetClusters:
-    - in-cluster
+    - cluster-1
+    - cluster-2
+
+  # Auto-install configuration (Flux uses manifest-based install)
+  autoInstall:
+    enabled: true
+    manifestUrl: "https://github.com/fluxcd/flux2/releases/download/v2.2.2/install.yaml"
+
   config:
     namespace: "flux-system"
     interval: "5m"
-    # This tells KSIT which GitRepository to monitor
-    gitRepositoryName: "ksit-repo"
-    gitRepositoryNamespace: "flux-system"

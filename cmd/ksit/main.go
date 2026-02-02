@@ -18,6 +18,7 @@ import (
 	"github.com/kubestellar/integration-toolkit/pkg/cluster"
 	"github.com/kubestellar/integration-toolkit/pkg/config"
 	"github.com/kubestellar/integration-toolkit/pkg/controller"
+	"github.com/kubestellar/integration-toolkit/pkg/installer"
 )
 
 var (
@@ -61,85 +62,103 @@ func main() {
 		var err error
 		cfg, err = config.LoadConfig(configFile)
 		if err != nil {
-			setupLog.Error(err, "failed to load config file")
-			cfg = config.NewDefaultConfig()
+			setupLog.Error(err, "unable to load config file")
+			os.Exit(1)
 		}
 	} else {
 		cfg = config.NewDefaultConfig()
 	}
 
 	// Use config values
-	if cfg.MetricsAddr != "" {
+	if metricsAddr == ":8080" && cfg.MetricsAddr != "" {
 		metricsAddr = cfg.MetricsAddr
 	}
-	if cfg.ProbeAddr != "" {
+	if probeAddr == ":8081" && cfg.ProbeAddr != "" {
 		probeAddr = cfg.ProbeAddr
 	}
-	enableLeaderElection = cfg.LeaderElection
-
-	webhookServerOptions := webhook.Options{
-		Port:    webhookPort,
-		CertDir: certDir,
+	if !enableLeaderElection {
+		enableLeaderElection = cfg.LeaderElection
 	}
 
+	// Setup manager
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
 		},
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port:    webhookPort,
+			CertDir: certDir,
+		}),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "ksit-leader-election",
-		WebhookServer:          webhook.NewServer(webhookServerOptions),
+		LeaderElectionID:       "ksit.io",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	// ✅ OPTION A: Use Manager Wrapper (Optional)
-	// Uncomment these lines to use the wrapper:
-	/*
-	   ctrlManager := controller.NewManager(mgr, ctrl.Log)
-	   // Manager wrapper will setup controllers internally
-	   // No need to call SetupWithManager directly
-	*/
+	// ✅ CREATE SHARED COMPONENTS
+	clusterManager := cluster.NewClusterManager(mgr.GetClient())
+	clusterInventory := cluster.NewClusterInventory()
+	installerFactory := installer.NewInstallerFactory() // ✅ INITIALIZE INSTALLER FACTORY
 
-	// ✅ OPTION B: Direct Setup (Current approach)
-	// Create shared ClusterManager and ClusterInventory
-	clusterMgr := cluster.NewClusterManager(mgr.GetClient())
-	clusterInv := cluster.NewClusterInventory()
+	setupLog.Info("initialized shared components",
+		"clusterManager", "ready",
+		"clusterInventory", "ready",
+		"installerFactory", "ready")
 
-	if err = (&controller.IntegrationReconciler{
+	// Setup Integration reconciler
+	integrationReconciler := &controller.IntegrationReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		Log:              ctrl.Log.WithName("controllers").WithName("Integration"),
-		ClusterManager:   clusterMgr,
-		ClusterInventory: clusterInv,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Integration")
+		Log:              ctrl.Log.WithName("Integration"),
+		ClusterManager:   clusterManager,
+		ClusterInventory: clusterInventory,
+		InstallerFactory: installerFactory, // ✅ NOW INITIALIZED
+	}
+
+	if err := integrationReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create Integration controller")
 		os.Exit(1)
 	}
 
-	if err = (&controller.IntegrationTargetReconciler{
+	// Setup IntegrationTarget reconciler
+	targetReconciler := &controller.IntegrationTargetReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
-		Log:            ctrl.Log.WithName("controllers").WithName("IntegrationTarget"),
-		ClusterManager: clusterMgr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "IntegrationTarget")
+		Log:            ctrl.Log.WithName("IntegrationTarget"),
+		ClusterManager: clusterManager,
+	}
+
+	if err := targetReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create IntegrationTarget controller")
 		os.Exit(1)
 	}
 
 	// Setup webhooks if enabled
 	if enableWebhook {
-		setupLog.Info("setting up webhooks")
-		if err := internalwebhook.SetupWebhookServer(mgr); err != nil {
-			setupLog.Error(err, "unable to setup webhooks")
+		integrationValidator := internalwebhook.NewIntegrationValidator(mgr.GetClient())
+		if err := ctrl.NewWebhookManagedBy(mgr).
+			For(&ksitv1alpha1.Integration{}).
+			WithValidator(integrationValidator).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Integration")
+			os.Exit(1)
+		}
+
+		targetValidator := internalwebhook.NewIntegrationTargetValidator(mgr.GetClient())
+		if err := ctrl.NewWebhookManagedBy(mgr).
+			For(&ksitv1alpha1.IntegrationTarget{}).
+			WithValidator(targetValidator).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "IntegrationTarget")
 			os.Exit(1)
 		}
 	}
 
+	// Health/ready checks
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)

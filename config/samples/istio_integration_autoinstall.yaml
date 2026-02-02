@@ -1,0 +1,26 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: istio-autoinstall
+  namespace: default
+spec:
+  type: istio
+  enabled: true
+  targetClusters:
+    - cluster-1
+
+  # Auto-install configuration
+  autoInstall:
+    enabled: true
+    method: helm
+    helmConfig:
+      repository: https://istio-release.storage.googleapis.com/charts
+      chart: istiod
+      version: "1.20.2"
+      releaseName: istiod
+      values:
+        global.proxy.resources.requests.cpu: 10m
+        global.proxy.resources.requests.memory: 128Mi
+
+  config:
+    namespace: istio-system

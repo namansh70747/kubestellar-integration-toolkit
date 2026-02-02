@@ -49,6 +49,48 @@ spec:
           spec:
             description: IntegrationSpec defines the desired state of Integration
             properties:
+              autoInstall:
+                description: AutoInstall configuration for automatic tool installation
+                properties:
+                  enabled:
+                    description: Enabled determines if KSIT should install this integration
+                    type: boolean
+                  helmConfig:
+                    description: HelmConfig for Helm-based installations
+                    properties:
+                      chart:
+                        description: Chart name
+                        type: string
+                      releaseName:
+                        description: Release name
+                        type: string
+                      repository:
+                        description: Repository URL
+                        type: string
+                      values:
+                        additionalProperties:
+                          type: string
+                        description: Values to override
+                        type: object
+                      version:
+                        description: Chart version
+                        type: string
+                    required:
+                    - chart
+                    - repository
+                    type: object
+                  manifestUrl:
+                    description: ManifestURL for manifest-based installations
+                    type: string
+                  method:
+                    description: Method specifies how to install (helm, manifest,
+                      operator)
+                    enum:
+                    - helm
+                    - manifest
+                    - operator
+                    type: string
+                type: object
               config:
                 additionalProperties:
                   type: string

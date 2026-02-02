@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -137,6 +138,40 @@ func (v *IntegrationValidator) InjectDecoder(d admission.Decoder) error {
 	return nil
 }
 
+// ValidateCreate implements admission.CustomValidator
+func (v *IntegrationValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	integration, ok := obj.(*ksitv1alpha1.Integration)
+	if !ok {
+		return nil, fmt.Errorf("expected Integration but got %T", obj)
+	}
+
+	errors := v.validateIntegration(integration)
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(errors, "; "))
+	}
+	return nil, nil
+}
+
+// ValidateUpdate implements admission.CustomValidator
+func (v *IntegrationValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	newIntegration, ok := newObj.(*ksitv1alpha1.Integration)
+	if !ok {
+		return nil, fmt.Errorf("expected Integration but got %T", newObj)
+	}
+
+	errors := v.validateIntegration(newIntegration)
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(errors, "; "))
+	}
+	return nil, nil
+}
+
+// ValidateDelete implements admission.CustomValidator
+func (v *IntegrationValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	// No validation needed for deletion
+	return nil, nil
+}
+
 // IntegrationTargetValidator validates IntegrationTarget resources
 type IntegrationTargetValidator struct {
 	Client  client.Client
@@ -221,6 +256,40 @@ func isValidLabelValue(value string) bool {
 func (v *IntegrationTargetValidator) InjectDecoder(d admission.Decoder) error {
 	v.decoder = d
 	return nil
+}
+
+// ValidateCreate implements admission.CustomValidator
+func (v *IntegrationTargetValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	target, ok := obj.(*ksitv1alpha1.IntegrationTarget)
+	if !ok {
+		return nil, fmt.Errorf("expected IntegrationTarget but got %T", obj)
+	}
+
+	errors := v.validateIntegrationTarget(target)
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(errors, "; "))
+	}
+	return nil, nil
+}
+
+// ValidateUpdate implements admission.CustomValidator
+func (v *IntegrationTargetValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	newTarget, ok := newObj.(*ksitv1alpha1.IntegrationTarget)
+	if !ok {
+		return nil, fmt.Errorf("expected IntegrationTarget but got %T", newObj)
+	}
+
+	errors := v.validateIntegrationTarget(newTarget)
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(errors, "; "))
+	}
+	return nil, nil
+}
+
+// ValidateDelete implements admission.CustomValidator
+func (v *IntegrationTargetValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	// No validation needed for deletion
+	return nil, nil
 }
 
 // ValidateCluster validates a cluster via HTTP endpoint

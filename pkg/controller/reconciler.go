@@ -19,6 +19,7 @@ import (
 
 	ksitv1alpha1 "github.com/kubestellar/integration-toolkit/api/v1alpha1"
 	"github.com/kubestellar/integration-toolkit/pkg/cluster"
+	"github.com/kubestellar/integration-toolkit/pkg/installer"
 	"github.com/kubestellar/integration-toolkit/pkg/integrations/prometheus"
 )
 
@@ -33,6 +34,7 @@ type IntegrationReconciler struct {
 	Log              logr.Logger
 	ClusterManager   *cluster.ClusterManager
 	ClusterInventory *cluster.ClusterInventory
+	InstallerFactory *installer.InstallerFactory
 }
 
 func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -110,6 +112,23 @@ func (r *IntegrationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.Log.Error(err, "failed to update status to Initializing")
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Handle auto-installation if enabled
+	if integration.Spec.AutoInstall != nil && integration.Spec.AutoInstall.Enabled {
+		log.Info("auto-install enabled, checking installation status")
+
+		installErr := r.handleAutoInstall(ctx, integration)
+		if installErr != nil {
+			log.Error(installErr, "auto-install failed")
+			integration.Status.Phase = ksitv1alpha1.PhaseFailed
+			integration.Status.Message = fmt.Sprintf("Auto-install failed: %v", installErr)
+			if err := r.Status().Update(ctx, integration); err != nil {
+				log.Error(err, "failed to update status after auto-install failure")
+			}
+			return ctrl.Result{RequeueAfter: requeueInterval}, installErr
+		}
+		log.Info("auto-install completed successfully")
 	}
 
 	// Reconcile based on type
@@ -751,4 +770,50 @@ func (r *IntegrationTargetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ksitv1alpha1.IntegrationTarget{}).
 		Complete(r)
+}
+
+// handleAutoInstall installs the integration tool on target clusters if not already installed
+func (r *IntegrationReconciler) handleAutoInstall(ctx context.Context, integration *ksitv1alpha1.Integration) error {
+	log := r.Log.WithValues("integration", integration.Name, "type", integration.Spec.Type)
+
+	// Get the installer for this integration type
+	inst, err := r.InstallerFactory.GetInstaller(integration.Spec.Type)
+	if err != nil {
+		return fmt.Errorf("failed to get installer: %w", err)
+	}
+
+	// Install on each target cluster
+	for _, clusterName := range integration.Spec.TargetClusters {
+		clusterLog := log.WithValues("cluster", clusterName)
+
+		// Get cluster config from manager
+		config, err := r.ClusterManager.GetClusterConfig(clusterName, integration.Namespace)
+		if err != nil {
+			clusterLog.Error(err, "failed to get cluster config")
+			return fmt.Errorf("failed to get config for cluster %s: %w", clusterName, err)
+		}
+
+		// Check if already installed
+		installed, err := inst.IsInstalled(ctx, config, integration)
+		if err != nil {
+			clusterLog.Error(err, "failed to check installation status")
+			return fmt.Errorf("failed to check installation on cluster %s: %w", clusterName, err)
+		}
+
+		if installed {
+			clusterLog.Info("integration already installed, skipping")
+			continue
+		}
+
+		// Install the integration
+		clusterLog.Info("installing integration")
+		if err := inst.Install(ctx, config, integration); err != nil {
+			clusterLog.Error(err, "installation failed")
+			return fmt.Errorf("failed to install on cluster %s: %w", clusterName, err)
+		}
+
+		clusterLog.Info("installation completed successfully")
+	}
+
+	return nil
 }

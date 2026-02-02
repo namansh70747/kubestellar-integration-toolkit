@@ -144,7 +144,12 @@ func (cm *ClusterManager) GetClusterConfig(name, namespace string) (*rest.Config
 	key := fmt.Sprintf("%s/%s", namespace, name)
 	config, exists := cm.configs[key]
 	if !exists {
-		return nil, fmt.Errorf("config for cluster %s/%s not found", namespace, name)
+		// ✅ IMPROVED ERROR: Show available clusters for debugging
+		availableKeys := make([]string, 0, len(cm.configs))
+		for k := range cm.configs {
+			availableKeys = append(availableKeys, k)
+		}
+		return nil, fmt.Errorf("config for cluster %s/%s not found (available clusters: %v)", namespace, name, availableKeys)
 	}
 
 	return config, nil

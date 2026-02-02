@@ -100,15 +100,6 @@ test-coverage: test ## Run tests with coverage report
 	@go test -v -coverprofile=coverage.out ./pkg/...
 	@go tool cover -html=coverage.out -o coverage.html
 
-.PHONY: test-integration
-test-integration: envtest ## Run integration tests
-	@echo "$(GREEN)Setting up envtest binaries...$(NC)"
-	@mkdir -p bin/k8s
-	@KUBEBUILDER_ASSETS=$$(cd $$(setup-envtest use 1.29.x --bin-dir ./bin/k8s -p path) && pwd) && \
-		echo "Using envtest binaries at: $$KUBEBUILDER_ASSETS" && \
-		export KUBEBUILDER_ASSETS && \
-		go test ./test/integration/... -v -ginkgo.v
-
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests (requires real cluster)
 	@echo "$(GREEN)Running e2e tests...$(NC)"
@@ -254,6 +245,21 @@ envtest: ## Download envtest if not present
 	go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION); \
 	fi
 
+.PHONY: test-integration
+test-integration: envtest ## Run integration tests
+	@echo "$(GREEN)Setting up envtest binaries...$(NC)"
+	@./scripts/setup-test-env.sh
+	@echo "$(GREEN)Running integration tests...$(NC)"
+	@# ✅ FIX: Use absolute path for KUBEBUILDER_ASSETS
+	@KUBEBUILDER_ASSETS=$$(cd "$$(pwd)/bin/k8s/k8s/1.29.5-darwin-arm64" 2>/dev/null && pwd || cd "$$(pwd)/bin/k8s/current" && pwd) \
+		go test ./test/integration/... -v -ginkgo.v -timeout=10m
+
+.PHONY: test-integration-debug
+test-integration-debug: envtest ## Run integration tests with verbose output
+	@./scripts/setup-test-env.sh
+	@KUBEBUILDER_ASSETS=$$(cd "$$(pwd)/bin/k8s/k8s/1.29.5-darwin-arm64" 2>/dev/null && pwd || cd "$$(pwd)/bin/k8s/current" && pwd) \
+		go test ./test/integration/... -v -ginkgo.v -ginkgo.trace -timeout=10m 2>&1 | tee integration-test-debug.log
+
 .PHONY: tools
 tools: controller-gen kustomize envtest ## Install all required tools
 	@echo "$(GREEN)All tools installed$(NC)"
@@ -327,6 +333,51 @@ status: ## Show deployment status
 logs: ## Show controller logs
 	@echo "$(GREEN)Showing controller logs...$(NC)"
 	@kubectl logs -n $(NAMESPACE) -l control-plane=controller-manager -f
+
+##@ Auto-Install Feature
+
+.PHONY: deploy-autoinstall
+deploy-autoinstall: ## Deploy controller with auto-install feature (v13)
+	@echo "$(GREEN)Deploying KSIT with auto-install feature...$(NC)"
+	@echo "Step 1: Building controller image v13..."
+	@docker build -t ksit-controller:v13 .
+	@echo "Step 2: Loading image into kind cluster..."
+	@kind load docker-image ksit-controller:v13 --name ksit-control || echo "Warning: Failed to load image, continuing..."
+	@echo "Step 3: Updating CRDs..."
+	@kubectl apply -f config/crd/bases/ksit.io_integrations.yaml --context kind-ksit-control
+	@echo "Step 4: Upgrading Helm release..."
+	@helm upgrade ksit ./deploy/helm/ksit \
+		--namespace $(NAMESPACE) \
+		--set image.repository=ksit-controller \
+		--set image.tag=v13 \
+		--set image.pullPolicy=Always \
+		--kube-context kind-ksit-control
+	@echo "Step 5: Waiting for controller to be ready..."
+	@kubectl rollout status deployment/ksit-controller-manager -n $(NAMESPACE) --context kind-ksit-control --timeout=2m
+	@echo "$(GREEN)✓ Auto-install feature deployed!$(NC)"
+
+.PHONY: test-autoinstall
+test-autoinstall: ## Test auto-install feature
+	@echo "$(GREEN)Testing auto-install feature...$(NC)"
+	@./test-autoinstall.sh
+
+.PHONY: demo-autoinstall-argocd
+demo-autoinstall-argocd: ## Demo: Auto-install ArgoCD
+	@echo "$(GREEN)Creating Integration with auto-install for ArgoCD...$(NC)"
+	@kubectl apply -f config/samples/argocd_integration_autoinstall.yaml --context kind-ksit-control
+	@echo "Watch progress with: kubectl get integration argocd-autoinstall -n $(NAMESPACE) -w --context kind-ksit-control"
+
+.PHONY: demo-autoinstall-prometheus
+demo-autoinstall-prometheus: ## Demo: Auto-install Prometheus
+	@echo "$(GREEN)Creating Integration with auto-install for Prometheus...$(NC)"
+	@kubectl apply -f config/samples/prometheus_integration_autoinstall.yaml --context kind-ksit-control
+	@echo "Watch progress with: kubectl get integration prometheus-autoinstall -n $(NAMESPACE) -w --context kind-ksit-control"
+
+.PHONY: demo-autoinstall-istio
+demo-autoinstall-istio: ## Demo: Auto-install Istio
+	@echo "$(GREEN)Creating Integration with auto-install for Istio...$(NC)"
+	@kubectl apply -f config/samples/istio_integration_autoinstall.yaml --context kind-ksit-control
+	@echo "Watch progress with: kubectl get integration istio-autoinstall -n $(NAMESPACE) -w --context kind-ksit-control"
 
 ##@ Release
 

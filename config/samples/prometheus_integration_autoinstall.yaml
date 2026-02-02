@@ -1,0 +1,26 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: prometheus-autoinstall
+  namespace: default
+spec:
+  type: prometheus
+  enabled: true
+  targetClusters:
+    - cluster-1
+
+  # Auto-install configuration
+  autoInstall:
+    enabled: true
+    method: helm
+    helmConfig:
+      repository: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      version: "55.5.0"
+      releaseName: prometheus
+      values:
+        prometheus.prometheusSpec.retention: 7d
+        grafana.enabled: "true"
+
+  config:
+    namespace: monitoring

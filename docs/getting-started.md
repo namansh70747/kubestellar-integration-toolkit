@@ -155,6 +155,178 @@ Check status:
 kubectl get integrations -n ksit-system
 ```
 
+## Option 3: Auto-Install and Monitor (New!)
+
+KSIT can automatically install tools on your clusters before monitoring them. This is perfect when you want KSIT to handle both installation and monitoring.
+
+### How It Works
+
+When you enable `autoInstall`, KSIT:
+
+1. Checks if the tool is already installed on the target cluster
+2. If not installed, installs it using Helm with sensible defaults
+3. Waits for installation to complete
+4. Starts health monitoring automatically
+
+### Example: Auto-Install ArgoCD
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-auto
+  namespace: ksit-system
+spec:
+  type: argocd
+  enabled: true
+  targetClusters:
+    - prod-cluster
+  
+  # Enable auto-installation
+  autoInstall:
+    enabled: true
+    method: helm
+    helmConfig:
+      repository: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      version: "5.51.6"
+      releaseName: argocd
+      values:
+        server.service.type: ClusterIP
+        server.insecure: "true"
+  
+  config:
+    namespace: argocd
+    healthCheckInterval: "30s"
+EOF
+```
+
+Watch it work:
+
+```bash
+# Watch the integration status
+kubectl get integration argocd-auto -n ksit-system -w
+
+# Watch controller logs to see installation progress
+kubectl logs -f -n ksit-system -l control-plane=controller-manager
+```
+
+You'll see:
+
+```
+INFO  auto-install enabled, checking installation status
+INFO  integration not installed, installing  {"cluster": "prod-cluster"}
+INFO  adding Helm repository
+INFO  installing Helm release  {"release": "argocd", "namespace": "argocd"}
+INFO  installation completed successfully
+INFO  checking ArgoCD health on cluster
+INFO  ArgoCD integration is healthy
+```
+
+### Default Configurations
+
+KSIT includes sensible defaults for each tool:
+
+**ArgoCD**:
+
+- Repository: <https://argoproj.github.io/argo-helm>
+- Chart: argo-cd v5.51.6
+- Namespace: argocd
+- Service: ClusterIP (insecure mode for development)
+
+**Prometheus**:
+
+- Repository: <https://prometheus-community.github.io/helm-charts>
+- Chart: kube-prometheus-stack v55.5.0
+- Namespace: monitoring
+- Retention: 7 days
+- Grafana enabled
+
+**Istio**:
+
+- Repository: <https://istio-release.storage.googleapis.com/charts>
+- Chart: istiod v1.20.2
+- Namespace: istio-system
+- Minimal resource requests (10m CPU, 128Mi memory)
+
+**Flux**:
+
+- Uses manifest-based installation
+- Downloads latest release from GitHub
+- Namespace: flux-system
+
+### Customize Installation
+
+Override defaults with your own values:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: prometheus-custom
+  namespace: ksit-system
+spec:
+  type: prometheus
+  enabled: true
+  targetClusters:
+    - prod-cluster
+  
+  autoInstall:
+    enabled: true
+    method: helm
+    helmConfig:
+      repository: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      version: "55.5.0"
+      releaseName: prometheus
+      values:
+        prometheus.prometheusSpec.retention: 30d
+        prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage: 50Gi
+        grafana.adminPassword: mysecretpassword
+  
+  config:
+    namespace: monitoring
+EOF
+```
+
+### When to Use Auto-Install
+
+**Use auto-install when:**
+
+- Setting up new clusters with standardized tools
+- Prototyping or testing configurations
+- You want KSIT to manage the complete lifecycle
+- Development environments where consistency matters
+
+**Skip auto-install when:**
+
+- Tools are already installed and configured
+- You have custom installation requirements
+- Production environments with strict change control
+- You use infrastructure-as-code tools (Terraform, Crossplane)
+
+### Check What's Installed
+
+```bash
+# Check Integration status
+kubectl get integration -n ksit-system
+
+# View detailed status
+kubectl describe integration argocd-auto -n ksit-system
+
+# Verify on target cluster
+kubectl get deployments -n argocd --context <your-cluster>
+kubectl get helmrelease -A --context <your-cluster>
+```
+
+Check status:
+
+```bash
+kubectl get integrations -n ksit-system
+```
+
 ## What Just Happened?
 
 Let me explain what's running now:
@@ -273,7 +445,11 @@ Absolutely. KSIT works with any Kubernetes cluster. Just create a kubeconfig sec
 
 **Q: Does KSIT need to install anything on my workload clusters?**
 
-No. KSIT only reads data from your clusters. It doesn't deploy anything or modify resources. It just checks if things exist and are healthy.
+With auto-install disabled, KSIT only reads data from your clusters. It doesn't deploy anything or modify resources. With auto-install enabled, KSIT will install the specified tools using Helm before monitoring them.
+
+**Q: Can KSIT install tools for me?**
+
+Yes! Use the `autoInstall` feature (see Option 3 above). KSIT will install ArgoCD, Flux, Prometheus, or Istio on your clusters using Helm with sensible defaults.
 
 **Q: What if a cluster goes offline?**
 
@@ -334,7 +510,7 @@ Yes. Just create kubeconfig secrets pointing to your real clusters and create In
 
 **Q: Does KSIT install the tools for me?**
 
-No. KSIT only monitors tools that are already installed. You need to install ArgoCD, Flux, Prometheus, and Istio yourself (or use our `make install-integrations` helper for development).
+Yes! KSIT can auto-install tools using the `autoInstall` feature. See "Option 3: Auto-Install and Monitor" above. You can also install them yourself manually if you prefer more control.
 
 **Q: Can I add monitoring for other tools besides the four supported ones?**
 

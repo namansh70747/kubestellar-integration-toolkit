@@ -1,0 +1,29 @@
+apiVersion: ksit.io/v1alpha1
+kind: Integration
+metadata:
+  name: argocd-autoinstall
+  namespace: default
+spec:
+  type: argocd
+  enabled: true
+  targetClusters:
+    - cluster-1
+    - cluster-2
+
+  # Auto-install configuration
+  autoInstall:
+    enabled: true
+    method: helm
+    helmConfig:
+      repository: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      version: "5.51.6"
+      releaseName: argocd
+      values:
+        server.service.type: ClusterIP
+        server.insecure: "true"
+
+  # Optional: Custom health check configuration
+  config:
+    namespace: argocd
+    healthEndpoint: /healthz

@@ -6,6 +6,7 @@ metadata:
   labels:
     {{- include "ksit.labels" . | nindent 4 }}
 rules:
+# Core permissions for Integration and IntegrationTarget CRDs
 - apiGroups:
   - ksit.io
   resources:
@@ -35,11 +36,16 @@ rules:
   - get
   - patch
   - update
+# Core Kubernetes resources
 - apiGroups:
   - ""
   resources:
   - secrets
   - configmaps
+  - namespaces
+  - services
+  - pods
+  - endpoints
   verbs:
   - get
   - list
@@ -51,6 +57,30 @@ rules:
   verbs:
   - create
   - patch
+# Apps resources for health checks
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
+# Coordination resources for leader election
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

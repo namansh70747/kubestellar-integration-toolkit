@@ -43,6 +43,51 @@ type IntegrationSpec struct {
 
 	// Config holds integration-specific configuration
 	Config map[string]string `json:"config,omitempty"`
+
+	// AutoInstall configuration for automatic tool installation
+	// +optional
+	AutoInstall *InstallConfig `json:"autoInstall,omitempty"`
+}
+
+// InstallConfig defines how to install an integration
+type InstallConfig struct {
+	// Enabled determines if KSIT should install this integration
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Method specifies how to install (helm, manifest, operator)
+	// +kubebuilder:validation:Enum=helm;manifest;operator
+	// +optional
+	Method string `json:"method,omitempty"`
+
+	// HelmConfig for Helm-based installations
+	// +optional
+	HelmConfig *HelmInstallConfig `json:"helmConfig,omitempty"`
+
+	// ManifestURL for manifest-based installations
+	// +optional
+	ManifestURL string `json:"manifestUrl,omitempty"`
+}
+
+// HelmInstallConfig defines Helm installation parameters
+type HelmInstallConfig struct {
+	// Repository URL
+	Repository string `json:"repository"`
+
+	// Chart name
+	Chart string `json:"chart"`
+
+	// Chart version
+	// +optional
+	Version string `json:"version,omitempty"`
+
+	// Release name
+	// +optional
+	ReleaseName string `json:"releaseName,omitempty"`
+
+	// Values to override
+	// +optional
+	Values map[string]string `json:"values,omitempty"`
 }
 
 // ClusterStatus represents the status of a target cluster

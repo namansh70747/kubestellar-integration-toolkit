@@ -33,7 +33,7 @@ securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:
-    - ALL
+      - ALL
   readOnlyRootFilesystem: true
 
 resources:
@@ -54,16 +54,16 @@ affinity: {}
 controller:
   # Metrics server bind address
   metricsAddr: ":8080"
-  
+
   # Health probe bind address
   probeAddr: ":8081"
-  
+
   # Enable leader election for high availability
   leaderElection: true
-  
+
   # Reconciliation interval (how often to check health)
   reconcileInterval: 30s
-  
+
   # Log level (debug, info, warn, error)
   logLevel: info
 
@@ -86,10 +86,10 @@ clusterInventory:
 healthCheck:
   # Default health check interval for integrations
   interval: 30s
-  
+
   # Number of retries before marking integration as failed
   retries: 3
-  
+
   # Timeout for each health check
   timeout: 10s
 
@@ -109,3 +109,54 @@ alerting:
   slackWebhook: ""
   # PagerDuty integration key
   pagerdutyKey: ""
+
+# Auto-install integrations on target clusters
+# When enabled, KSIT will automatically install and monitor these tools
+autoInstall:
+  # Enable auto-install feature
+  enabled: true
+
+  # Target clusters for auto-installation
+  targetClusters:
+    - cluster-1
+    - cluster-2
+
+  # ArgoCD auto-install
+  argocd:
+    enabled: true
+    namespace: argocd
+    chart:
+      repository: https://argoproj.github.io/argo-helm
+      name: argo-cd
+      version: "5.51.6"
+    values:
+      server.service.type: ClusterIP
+      server.insecure: "true"
+
+  # Prometheus auto-install
+  prometheus:
+    enabled: true
+    namespace: monitoring
+    chart:
+      repository: https://prometheus-community.github.io/helm-charts
+      name: kube-prometheus-stack
+      version: "55.5.0"
+    values:
+      prometheus.prometheusSpec.retention: 7d
+
+  # Istio auto-install
+  istio:
+    enabled: true
+    namespace: istio-system
+    chart:
+      repository: https://istio-release.storage.googleapis.com/charts
+      name: istiod
+      version: "1.20.1"
+    values:
+      global.hub: docker.io/istio
+
+  # Flux auto-install (manifest-based)
+  flux:
+    enabled: false # Disabled by default due to kind compatibility
+    namespace: flux-system
+    manifestUrl: https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
